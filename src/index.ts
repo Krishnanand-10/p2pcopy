@@ -211,9 +211,7 @@ async function handleClipSend(options: any) {
     await signalClient.connect();
 
     await signalClient.createRoom(pairingCode);
-    UI.pairingCode(pairingCode);
-    console.log(pc.dim(`  Receiver command: `) + pc.green(`p2pcopy clip get ${pairingCode}`));
-    console.log();
+    UI.pairingCode(pairingCode, "clip");
     UI.info("Waiting for receiver to connect...");
 
     const peer = new WebRTCPeer({
