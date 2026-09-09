@@ -339,7 +339,7 @@ clipCommand
 program
   .command("signal")
   .description("Run an ephemeral WebRTC signaling server")
-  .option("-p, --port <number>", "Port to listen on", "9000")
+  .option("-p, --port <number>", "Port to listen on", process.env.PORT || "9000")
   .option("-h, --host <host>", "Host to bind", "0.0.0.0")
   .action(async (options: any) => {
     UI.banner();

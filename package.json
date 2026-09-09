@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "p2pcopy",
     "version":  "0.1.0",
     "description":  "Zero-cloud, end-to-end encrypted peer-to-peer file and clipboard sharing right from your terminal.",
@@ -12,7 +12,9 @@
                     "watch":  "tsc -w",
                     "start":  "node ./bin/p2pcopy.js",
                     "clean":  "rimraf dist",
-                    "test":  "npm run build \u0026\u0026 node test/signaling.test.js \u0026\u0026 node test/webrtc.test.js \u0026\u0026 node test/file-transfer.test.js \u0026\u0026 node test/clipboard.test.js"
+                    "test":  "npm run build \u0026\u0026 node test/signaling.test.js \u0026\u0026 node test/webrtc.test.js \u0026\u0026 node test/file-transfer.test.js \u0026\u0026 node test/clipboard.test.js",
+                    "postinstall": "npm run build",
+                    "start:signal": "node dist/index.js signal"
                 },
     "keywords":  [
                      "p2p",
