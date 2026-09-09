@@ -42,3 +42,7 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# Local progress tracker
+ROADMAP.md
+
