@@ -11,6 +11,8 @@ import { FileSender } from "./transfer/sender";
 import { FileReceiver } from "./transfer/receiver";
 import { readClipboard, writeClipboard, readStdin } from "./clipboard/index";
 
+const DEFAULT_SIGNAL_URL = process.env.P2PCOPY_SIGNAL || "wss://p2pcopy.onrender.com";
+
 const program = new Command();
 
 program
@@ -23,7 +25,7 @@ program
   .command("send")
   .description("Send a file directly to another peer")
   .argument("<file>", "Path to the file to send")
-  .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
+  .option("-s, --signal <url>", "Signaling server URL", DEFAULT_SIGNAL_URL)
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
   .action(async (file: string, options: any) => {
     try {
@@ -100,7 +102,7 @@ program
   .description("Receive a file from a peer using pairing code")
   .argument("<code>", "Pairing code (e.g. 749-102)")
   .option("-o, --output <dir>", "Output directory for received file", ".")
-  .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
+  .option("-s, --signal <url>", "Signaling server URL", DEFAULT_SIGNAL_URL)
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
   .action(async (code: string, options: any) => {
     try {
@@ -143,7 +145,7 @@ program
           console.log();
           UI.success(`File received successfully: ${pc.bold(result.filename)}`);
           UI.info(`Location: ${pc.cyan(result.outputPath)}`);
-          UI.info(`SHA-256 Checksum: ${pc.dim(result.sha256)} (Verified âœ”)`);
+          UI.info(`SHA-256 Checksum: ${pc.dim(result.sha256)} (Verified Ã¢Å“â€)`);
 
           setTimeout(() => {
             peer.close();
@@ -171,7 +173,7 @@ program
 const clipCommand = program
   .command("clip")
   .description("Sync clipboard contents directly between machines")
-  .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
+  .option("-s, --signal <url>", "Signaling server URL", DEFAULT_SIGNAL_URL)
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
   .action(async (options: any) => {
     // Default action for "p2pcopy clip" is send
@@ -181,7 +183,7 @@ const clipCommand = program
 clipCommand
   .command("send")
   .description("Share clipboard contents with a peer")
-  .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
+  .option("-s, --signal <url>", "Signaling server URL", DEFAULT_SIGNAL_URL)
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
   .action(async (options: any) => {
     await handleClipSend(options);
@@ -263,7 +265,7 @@ clipCommand
   .command("get")
   .description("Fetch shared clipboard content from a peer")
   .argument("<code>", "Pairing code")
-  .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
+  .option("-s, --signal <url>", "Signaling server URL", DEFAULT_SIGNAL_URL)
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
   .option("--no-copy", "Do not copy to clipboard, only print to stdout")
   .action(async (code: string, options: any) => {
@@ -303,7 +305,7 @@ clipCommand
 
               if (options.copy !== false) {
                 writeClipboard(text);
-                UI.success("Content copied directly to your clipboard! ðŸ“‹");
+                UI.success("Content copied directly to your clipboard! Ã°Å¸â€œâ€¹");
               }
 
               console.log();
