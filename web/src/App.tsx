@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Navbar } from "./components/Navbar";
 import { DualTerminal } from "./components/DualTerminal";
+import { BentoGrid } from "./components/BentoGrid";
 import { Copy, Check, Terminal, Shield, Zap, Lock, Cpu, Globe, ArrowRight } from "lucide-react";
 
 export const App: React.FC = () => {
@@ -58,6 +59,9 @@ export const App: React.FC = () => {
         <section id="demo" className="w-full">
           <DualTerminal />
         </section>
+
+        {/* Bento Grid Feature Matrix */}
+        <BentoGrid />
       </main>
 
       {/* Footer */}
