@@ -1,6 +1,14 @@
 import { Command } from "commander";
+import fs from "fs";
+import path from "path";
+import pc from "picocolors";
 import { UI } from "./utils/ui";
+import { generatePairingCode, normalizeCode } from "./utils/code";
 import { EphemeralSignalingServer } from "./signaling/server";
+import { SignalingClient } from "./signaling/client";
+import { WebRTCPeer } from "./webrtc/peer";
+import { FileSender } from "./transfer/sender";
+import { FileReceiver } from "./transfer/receiver";
 
 const program = new Command();
 
@@ -16,11 +24,73 @@ program
   .argument("<file>", "Path to the file to send")
   .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
-  .action((file: string, options: any) => {
-    UI.banner();
-    UI.info(`Initiating transfer for file: ${file}`);
-    UI.info(`Signaling server: ${options.signal}`);
-    UI.warn("WebRTC data engine will be activated in next milestone.");
+  .action(async (file: string, options: any) => {
+    try {
+      UI.banner();
+
+      const resolvedPath = path.resolve(file);
+      if (!fs.existsSync(resolvedPath)) {
+        UI.error(`File not found: ${resolvedPath}`);
+        process.exit(1);
+      }
+
+      const pairingCode = generatePairingCode();
+      const signalUrl = options.signal;
+
+      UI.info(`Connecting to signaling server at ${pc.cyan(signalUrl)}...`);
+      const signalClient = new SignalingClient(signalUrl);
+      await signalClient.connect();
+
+      await signalClient.createRoom(pairingCode);
+      UI.pairingCode(pairingCode);
+      UI.info("Waiting for receiver to connect...");
+
+      const peer = new WebRTCPeer({
+        name: "sender",
+        isInitiator: true,
+        roomId: pairingCode,
+        signalingClient: signalClient,
+        customIceServers: options.ice,
+      });
+
+      await peer.start();
+
+      peer.on("connected", async (dc) => {
+        UI.success("WebRTC DataChannel connected (E2EE active)!");
+        UI.info("Starting direct P2P file transfer...");
+
+        try {
+          const sender = new FileSender({
+            filePath: resolvedPath,
+            dataChannel: dc,
+            showProgress: true,
+          });
+
+          await sender.send();
+
+          console.log();
+          UI.success(`File ${pc.bold(path.basename(resolvedPath))} sent and verified by receiver!`);
+          
+          setTimeout(() => {
+            peer.close();
+            signalClient.close();
+            process.exit(0);
+          }, 500);
+        } catch (err: any) {
+          UI.error(`Transfer error: ${err.message}`);
+          peer.close();
+          signalClient.close();
+          process.exit(1);
+        }
+      });
+
+      peer.on("error", (err) => {
+        UI.error(`Peer error: ${err.message}`);
+      });
+    } catch (err: any) {
+      UI.error(`Send failed: ${err.message}`);
+      process.exit(1);
+    }
   });
 
 // Command: Receive a file
@@ -31,11 +101,69 @@ program
   .option("-o, --output <dir>", "Output directory for received file", ".")
   .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
   .option("--ice <servers...>", "Custom STUN/TURN server URLs")
-  .action((code: string, options: any) => {
-    UI.banner();
-    UI.info(`Connecting to peer with code: ${code}`);
-    UI.info(`Output directory: ${options.output}`);
-    UI.warn("WebRTC data engine will be activated in next milestone.");
+  .action(async (code: string, options: any) => {
+    try {
+      UI.banner();
+
+      const pairingCode = normalizeCode(code);
+      const signalUrl = options.signal;
+
+      UI.info(`Connecting to signaling server at ${pc.cyan(signalUrl)}...`);
+      const signalClient = new SignalingClient(signalUrl);
+      await signalClient.connect();
+
+      UI.info(`Joining room ${pc.yellow(pairingCode)}...`);
+      await signalClient.joinRoom(pairingCode);
+      UI.success("Joined room. Negotiating direct WebRTC connection...");
+
+      const peer = new WebRTCPeer({
+        name: "receiver",
+        isInitiator: false,
+        roomId: pairingCode,
+        signalingClient: signalClient,
+        customIceServers: options.ice,
+      });
+
+      await peer.start();
+
+      peer.on("connected", async (dc) => {
+        UI.success("WebRTC DataChannel connected (E2EE active)!");
+        UI.info("Awaiting file transfer from sender...");
+
+        try {
+          const receiver = new FileReceiver({
+            outputDir: options.output,
+            dataChannel: dc,
+            showProgress: true,
+          });
+
+          const result = await receiver.receive();
+
+          console.log();
+          UI.success(`File received successfully: ${pc.bold(result.filename)}`);
+          UI.info(`Location: ${pc.cyan(result.outputPath)}`);
+          UI.info(`SHA-256 Checksum: ${pc.dim(result.sha256)} (Verified ✔)`);
+
+          setTimeout(() => {
+            peer.close();
+            signalClient.close();
+            process.exit(0);
+          }, 500);
+        } catch (err: any) {
+          UI.error(`Receive error: ${err.message}`);
+          peer.close();
+          signalClient.close();
+          process.exit(1);
+        }
+      });
+
+      peer.on("error", (err) => {
+        UI.error(`Peer error: ${err.message}`);
+      });
+    } catch (err: any) {
+      UI.error(`Receive failed: ${err.message}`);
+      process.exit(1);
+    }
   });
 
 // Command: Clipboard sharing
