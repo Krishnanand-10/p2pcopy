@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Download, Copy, Check, ShieldCheck, Loader2, AlertCircle, FileBox, Radio } from "lucide-react";
+import { Download, Copy, Check, ShieldCheck, Loader2, AlertCircle } from "lucide-react";
 
 const SIGNAL_URL = "wss://p2pcopy.onrender.com";
 
@@ -262,11 +262,11 @@ export const WebReceiver: React.FC = () => {
   return (
     <section id="receiver" className="scroll-mt-24 border-t border-line py-20 text-left sm:py-28">
       <div>
-        <h2 className="text-3xl sm:text-4xl text-ink font-normal tracking-tight">
-          Prefer the <span className="serif-italic text-mint">browser?</span>
+        <h2 className="text-3xl sm:text-4xl text-white font-bold tracking-tight">
+          Prefer the browser?
         </h2>
         <p className="mt-4 max-w-[60ch] text-base leading-relaxed text-ink-soft">
-          Sending to a non-technical friend? They don&apos;t need Node.js or a terminal. Enter the 6-digit code to download files or grab clipboard text directly into this browser window over WebRTC.
+          Enter your 6-digit pairing code to download files or receive clipboard text directly in this browser window over WebRTC.
         </p>
       </div>
 
@@ -280,12 +280,12 @@ export const WebReceiver: React.FC = () => {
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleStartReceive()}
-                className="flex-1 rounded-[12px] border border-line bg-paper-2 px-4 py-3 font-mono text-sm text-ink placeholder-ink-faint focus:border-line-strong focus:outline-none"
+                className="flex-1 rounded-[12px] border border-line bg-paper-2 px-4 py-3 font-mono text-sm text-ink placeholder-ink-faint focus:border-[#00d2ff]/60 focus:outline-none"
               />
               <button
                 onClick={handleStartReceive}
                 disabled={!code.trim()}
-                className="rounded-[11px] bg-signal px-5 py-3 text-sm font-semibold text-signal-contrast transition-opacity duration-300 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="rounded-[11px] bg-[#00d2ff] px-5 py-3 text-sm font-semibold text-black transition-opacity duration-300 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
               >
                 Connect & Download
               </button>
@@ -300,19 +300,19 @@ export const WebReceiver: React.FC = () => {
           </div>
         ) : status === "connecting" || status === "negotiating" ? (
           <div className="py-6 text-center space-y-3">
-            <Loader2 className="h-6 w-6 text-mint animate-spin mx-auto" />
+            <Loader2 className="h-6 w-6 text-[#00d2ff] animate-spin mx-auto" />
             <div className="font-mono text-xs text-ink-soft">{statusMessage}</div>
           </div>
         ) : status === "receiving" && receivedType === "file" ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between font-mono text-xs">
               <span className="text-ink font-medium">{fileHeader?.filename}</span>
-              <span className="text-mint font-semibold">{progress}%</span>
+              <span className="text-[#00d2ff] font-semibold">{progress}%</span>
             </div>
 
             <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
               <div
-                className="bg-mint h-full transition-all duration-150"
+                className="bg-[#00d2ff] h-full transition-all duration-150"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -326,7 +326,7 @@ export const WebReceiver: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Check className="h-5 w-5 text-mint" />
+                <Check className="h-5 w-5 text-[#00d2ff]" />
                 <span className="text-sm font-medium text-ink">
                   {receivedType === "file" ? "File downloaded to your device" : "Clipboard payload received"}
                 </span>
@@ -349,7 +349,7 @@ export const WebReceiver: React.FC = () => {
                 </div>
                 <button
                   onClick={copyReceivedClip}
-                  className="rounded-[10px] bg-signal px-4 py-2 font-mono text-xs font-semibold text-signal-contrast transition-opacity hover:opacity-90"
+                  className="rounded-[10px] bg-[#00d2ff] px-4 py-2 font-mono text-xs font-semibold text-black transition-opacity hover:opacity-90"
                 >
                   {copied ? "Copied!" : "Copy to Clipboard"}
                 </button>

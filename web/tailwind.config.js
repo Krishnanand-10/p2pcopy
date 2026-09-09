@@ -23,13 +23,14 @@ export default {
           soft: "#9696a6",
           faint: "#585866",
         },
-        mint: {
-          DEFAULT: "#54d6a6",
-          hover: "#42c896",
-          dim: "rgba(84, 214, 166, 0.12)",
+        neon: {
+          DEFAULT: "#00d2ff",
+          hover: "#00bce6",
+          dim: "rgba(0, 210, 255, 0.12)",
+          border: "rgba(0, 210, 255, 0.25)",
         },
         signal: {
-          DEFAULT: "#54d6a6",
+          DEFAULT: "#00d2ff",
           contrast: "#070708",
         },
         terminal: {
@@ -38,9 +39,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["'Plus Jakarta Sans'", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        sans: ["'Plus Jakarta Sans'", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
         mono: ["'JetBrains Mono'", "Fira Code", "Menlo", "Monaco", "Consolas", "monospace"],
-        serif: ["'Newsreader'", "Georgia", "serif"],
       },
     },
   },
