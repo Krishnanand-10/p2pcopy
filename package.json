@@ -12,7 +12,7 @@
                     "watch":  "tsc -w",
                     "start":  "node ./bin/p2pcopy.js",
                     "clean":  "rimraf dist",
-                    "test":  "npm run build \u0026\u0026 node test/signaling.test.js"
+                    "test":  "npm run build \u0026\u0026 node test/signaling.test.js \u0026\u0026 node test/webrtc.test.js"
                 },
     "keywords":  [
                      "p2p",
