@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { ClientMessage, ServerMessage } from "./types";
@@ -32,7 +34,7 @@ export class EphemeralSignalingServer {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>p2pcopy — Ephemeral Signaling Relay</title>
+  <title>p2pcopy â€” Ephemeral Signaling Relay</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
     .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; border: 1px solid #334155; text-align: center; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
@@ -50,8 +52,8 @@ export class EphemeralSignalingServer {
 <body>
   <div class="card">
     <div class="badge"><span class="dot"></span> Signaling Relay Online</div>
-    <h1>🚀 p2pcopy</h1>
-    <p>This is an ephemeral, zero-storage WebRTC signaling server. Payloads never touch this server — all files and clipboard data flow directly peer-to-peer with end-to-end encryption.</p>
+    <h1>ðŸš€ p2pcopy</h1>
+    <p>This is an ephemeral, zero-storage WebRTC signaling server. Payloads never touch this server â€” all files and clipboard data flow directly peer-to-peer with end-to-end encryption.</p>
     <div class="terminal-box">
       <div><span style="color:#64748b;"># Send a file</span></div>
       <div>$ <span class="cmd">p2pcopy send</span> &lt;file&gt;</div>
