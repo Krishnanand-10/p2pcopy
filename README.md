@@ -17,23 +17,35 @@
 
 ---
 
-## 📥 Installation & Setup
+[![npm version](https://img.shields.io/npm/v/p2pcopy.svg)](https://www.npmjs.com/package/p2pcopy)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-### Prerequisites
-- Node.js 18+ (tested on Node 20, 22, and 24)
+## 📥 Quickstart (Zero Installation Required!)
 
-### Install & Link Globally
+You do **not** need to clone the repository or install anything. Anyone with Node.js can run `p2pcopy` directly via `npx`:
+
 ```bash
-# Clone the repository
+# Sender:
+npx p2pcopy send ./myfile.zip
+
+# Receiver:
+npx p2pcopy receive 749-102
+```
+
+---
+
+### Global Installation (Optional)
+
+If you want the command permanently installed on your system:
+
+```bash
+# Install globally from npm
+npm install -g p2pcopy
+
+# Or install from source
 git clone https://github.com/Krishnanand-10/p2pcopy.git
 cd p2pcopy
-
-# Install dependencies and build
-npm install
-npm run build
-
-# Link globally so 'p2pcopy' is available in your PATH
-npm link
+npm install && npm link
 ```
 
 ---
