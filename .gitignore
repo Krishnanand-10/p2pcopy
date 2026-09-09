@@ -1,0 +1,44 @@
+﻿# Dependencies
+node_modules/
+package-lock.json.bak
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Build artifacts
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & editors
+.idea/
+.vscode/
+*.swp
+*.swo
