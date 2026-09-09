@@ -4,21 +4,25 @@
 
 :root {
   color-scheme: dark;
-  --mint: #54d6a6;
 }
 
 body {
   background-color: #070708;
-  color: #f3f3f7;
+  color: #f4f4f8;
   overflow-x: hidden;
 }
 
 .serif-italic {
-  font-family: "Instrument Serif", Georgia, serif;
+  font-family: "Newsreader", Georgia, serif;
   font-style: italic;
 }
 
-/* Custom subtle scrollbar */
+/* Subtle aesthetic ambient lighting */
+.ambient-glow {
+  background: radial-gradient(circle at 50% -10%, rgba(84, 214, 166, 0.08) 0%, rgba(56, 189, 248, 0.03) 30%, transparent 65%);
+}
+
+/* Custom minimal scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -27,9 +31,9 @@ body {
   background: #070708;
 }
 ::-webkit-scrollbar-thumb {
-  background: #202026;
+  background: #1e1e26;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2c2c36;
+  background: #2a2a36;
 }

@@ -18,17 +18,26 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070708] text-ink flex flex-col selection:bg-mint/20 selection:text-mint">
+    <div className="relative min-h-screen bg-[#070708] text-ink flex flex-col selection:bg-mint/20 selection:text-mint">
+      {/* Soft Ambient Top Lighting */}
+      <div className="fixed inset-0 pointer-events-none ambient-glow z-0" />
+
       {/* Sticky Header */}
       <Navbar />
 
-      {/* Main Page Container */}
-      <main className="mx-auto max-w-6xl px-6 w-full flex-1">
+      {/* Main Content */}
+      <main className="relative z-10 mx-auto max-w-6xl px-6 w-full flex-1">
         {/* Hero Section */}
         <section className="flex flex-col items-center pt-20 text-center sm:pt-24">
+          {/* Status Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/20 bg-emerald-500/[0.06] text-xs font-mono text-emerald-400 mb-6">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>v0.1.0 Released on npm</span>
+          </div>
+
           {/* Main Title */}
-          <h1 className="mx-auto max-w-[20ch] text-[2.75rem] leading-[1.1] sm:text-6xl lg:text-7xl font-normal tracking-tight text-ink">
-            Direct device-to-device <span className="serif-italic text-mint">streaming</span> from your terminal.
+          <h1 className="mx-auto max-w-[20ch] text-[2.75rem] leading-[1.12] sm:text-6xl lg:text-7xl font-bold tracking-tight text-ink">
+            Direct device-to-device <span className="serif-italic text-mint font-normal">streaming</span> from your terminal.
           </h1>
 
           {/* Subtitle */}
@@ -36,7 +45,7 @@ export const App: React.FC = () => {
             Transfer files and beam clipboards directly between machines with zero cloud storage, no accounts, and end-to-end encryption. Terminal or web browser.
           </p>
 
-          {/* Hero Action Row */}
+          {/* Action Row */}
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             {/* Install Pill */}
             <div className="inline-flex items-center gap-3 rounded-[12px] border border-line bg-paper-2 py-2.5 pl-4 pr-2 font-mono text-sm">
@@ -56,7 +65,7 @@ export const App: React.FC = () => {
               </button>
             </div>
 
-            {/* Web Receiver Button */}
+            {/* Secondary CTA */}
             <a
               href="#receiver"
               className="rounded-[11px] border border-line-strong px-5 py-3 text-sm font-medium text-ink transition-colors duration-300 hover:bg-paper-2"
@@ -65,38 +74,38 @@ export const App: React.FC = () => {
             </a>
           </div>
 
-          {/* Hero Terminal Session */}
+          {/* Interactive Hero Terminal */}
           <div className="mt-14 w-full flex justify-center">
             <TerminalDemo />
           </div>
         </section>
 
-        {/* Feature Grid ("Everything cloud drives do, minus the cloud") */}
+        {/* Feature Grid */}
         <FeatureGrid />
 
-        {/* Commands List ("Six commands, zero config") */}
+        {/* Commands List */}
         <CommandsSection />
 
-        {/* Web Receiver ("Prefer the browser?") */}
+        {/* In-Browser Web Receiver */}
         <WebReceiver />
 
-        {/* Typed Library Section */}
+        {/* Typed Library */}
         <LibrarySection />
 
-        {/* Bottom CTA Banner ("One command away.") */}
+        {/* Bottom CTA Banner */}
         <section className="pb-24 pt-10 sm:pb-28">
-          <div className="relative overflow-hidden rounded-[28px] border border-line bg-panel px-8 py-20 text-center">
+          <div className="relative overflow-hidden rounded-[24px] border border-line bg-panel px-8 py-16 text-center">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 top-0 h-48"
+              className="pointer-events-none absolute inset-x-0 top-0 h-44"
               style={{
                 background:
-                  "radial-gradient(460px 180px at 50% 0, rgba(84, 214, 166, 0.12), transparent 70%)",
+                  "radial-gradient(460px 180px at 50% 0, rgba(84, 214, 166, 0.1), transparent 70%)",
               }}
             />
 
-            <h2 className="mt-2 text-3xl leading-[1.15] sm:text-4xl text-ink font-normal tracking-tight">
-              One command <span className="serif-italic text-mint">away.</span>
+            <h2 className="mt-2 text-3xl leading-[1.15] sm:text-4xl text-ink font-semibold tracking-tight">
+              One command <span className="serif-italic text-mint font-normal">away.</span>
             </h2>
 
             <div className="mt-8 flex justify-center">
@@ -119,14 +128,14 @@ export const App: React.FC = () => {
             </div>
 
             <p className="mt-5 text-sm text-ink-faint">
-              Node 18+, Windows, macOS, Linux, and modern web browsers. Zero cloud storage.
+              Node 18+, Windows, macOS, Linux, and modern web browsers. Zero configuration.
             </p>
           </div>
         </section>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-line">
+      <footer className="relative z-10 border-t border-line">
         <div className="mx-auto max-w-6xl px-6 py-10">
           <div className="flex flex-col justify-between gap-8 sm:flex-row items-center sm:items-start text-center sm:text-left">
             <div>
