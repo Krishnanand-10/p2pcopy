@@ -1,65 +1,114 @@
-﻿# 🚀 p2pcopy
+# 🚀 p2pcopy
 
 > **Zero-cloud, end-to-end encrypted peer-to-peer file and clipboard sharing right from your terminal.**
 
-`p2pcopy` is a lightweight CLI tool that allows two computers to transfer files and clipboard content directly over WebRTC DataChannels. There are **no cloud storage buckets, no accounts, and no intermediate file uploads**. A short-lived signaling exchange connects both peers, after which data streams directly device-to-device with end-to-end encryption.
+`p2pcopy` is a fast CLI tool that allows two computers to transfer files and clipboard content directly over **WebRTC DataChannels**. There are **no cloud storage buckets, no accounts, and no intermediate file uploads**. A short-lived, ephemeral signaling exchange connects both peers, after which data streams directly device-to-device with end-to-end DTLS/SCTP encryption.
 
 ---
 
-## ✨ Features
+## ⚡ Key Highlights
 
-- ⚡ **Direct Peer-to-Peer:** Data flows directly between sender and receiver via WebRTC DataChannels (SCTP over DTLS).
-- 🔒 **End-to-End Encrypted:** WebRTC enforces DTLS encryption by default. No plain-text payload ever touches third-party infrastructure.
-- 💨 **Ephemeral Signaling:** A tiny, short-lived rendezvous server is used solely for the initial SDP/ICE handshake. Once connected, signaling is terminated.
-- 📋 **Clipboard Syncing:** Easily beam clipboard snippets, tokens, and text buffers across machines with a single command.
-- 📦 **File & Directory Streaming:** Chunked streaming transfer with integrity checks and real-time progress indicators.
-- 🌐 **Browser Counterpart Ready:** Designed with a protocol schema compatible with browser-based WebRTC clients.
+- 🔒 **End-to-End Encrypted (E2EE):** Built on WebRTC DTLS/SCTP. Payloads never touch third-party servers.
+- 💨 **Zero Cloud Storage:** Data streams directly memory-to-memory / disk-to-disk between peers.
+- 📋 **Terminal Clipboard Beam:** Sync secrets, SSH keys, or tokens across machines instantly (`p2pcopy clip`). Supports standard UNIX stdin pipes (`cat id_rsa.pub | p2pcopy clip`).
+- 📦 **High-Performance Chunked Streaming:** 64KB SCTP chunks with backpressure buffer controls (`bufferedAmount`), streaming 50GB+ files using only ~1MB of RAM.
+- 🛡️ **SHA-256 Verified:** Automatic on-the-fly checksum computation and verification before files are saved.
+- 🌐 **Symmetric NAT & TURN Resilience:** Built-in STUN hole-punching with configurable TURN blind relay fallback for strict corporate firewalls.
 
 ---
 
-## 🛠️ Architecture & Flow
+## 📥 Installation & Setup
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor A as Machine A (Sender)
-    participant S as Ephemeral Signaling Server
-    actor B as Machine B (Receiver)
+### Prerequisites
+- Node.js 18+ (tested on Node 20, 22, and 24)
 
-    A->>S: Register room code (e.g. "839-201") + SDP Offer
-    B->>S: Join room code ("839-201")
-    S-->>B: Relay SDP Offer & ICE candidates
-    B->>S: Send SDP Answer & ICE candidates
-    S-->>A: Relay SDP Answer & ICE candidates
-    Note over A,B: WebRTC DataChannel Established (E2EE via DTLS)
-    A--xS: Close signaling connection
-    B--xS: Close signaling connection
-    A->>B: Direct stream: File chunks / Clipboard payload
+### Install & Link Globally
+```bash
+# Clone the repository
+git clone https://github.com/Krishnanand-10/p2pcopy.git
+cd p2pcopy
+
+# Install dependencies and build
+npm install
+npm run build
+
+# Link globally so 'p2pcopy' is available in your PATH
+npm link
 ```
 
 ---
 
-## 🧭 Planned CLI Interface
+## 🧭 Usage & Commands
 
-### File Transfer
+### 1. File Transfer
+
+**Sender Machine:**
 ```bash
-# Sender generates a 6-digit code or phrase
-p2pcopy send ./project.zip
+# Generate pairing code and wait for peer
+p2pcopy send ./build-artifacts.zip
+```
+Output:
+```text
+  ╔═════════════════════════════════════════════╗
+  ║   🚀 p2pcopy — Terminal Peer-to-Peer File   ║
+  ║      & Clipboard Sync over WebRTC (E2EE)    ║
+  ╚═════════════════════════════════════════════╝
 
-# Receiver fetches directly from peer
-p2pcopy receive 839-201
+ℹ Connecting to signaling server at ws://localhost:9000...
+
+  PAIRING CODE  
+  >>>  749-102  <<<
+  Run on receiving machine: p2pcopy receive 749-102
+
+ℹ Waiting for receiver to connect...
 ```
 
-### Clipboard Transfer
+**Receiver Machine:**
 ```bash
-# Pipe text or copy current clipboard to peer
-cat id_rsa.pub | p2pcopy clip
+p2pcopy receive 749-102
+
+# Or specify a custom download directory
+p2pcopy receive 749-102 --output ~/Downloads
+```
+
+---
+
+### 2. Instant Clipboard Sync
+
+**Beam Current Clipboard or Piped Input:**
+```bash
+# Share current clipboard contents
+p2pcopy clip
+
+# Or pipe output directly from another command
+cat ~/.ssh/id_ed25519.pub | p2pcopy clip
 # or
-p2pcopy clip send
-
-# Receiver pastes into local clipboard or stdout
-p2pcopy clip get
+git diff | p2pcopy clip
 ```
+
+**Receive Clipboard on Peer Machine:**
+```bash
+# Automatically copies content directly to your system clipboard
+p2pcopy clip get 749-102
+
+# Or print only to stdout without modifying clipboard
+p2pcopy clip get 749-102 --no-copy
+```
+
+---
+
+### 3. Ephemeral Signaling Relay
+
+`p2pcopy` uses an in-memory, zero-storage WebSocket relay to broker the initial WebRTC SDP and ICE handshake:
+```bash
+# Run your own private signaling server
+p2pcopy signal --port 9000
+
+# Connect peers using your signaling server
+p2pcopy send ./data.tar.gz --signal ws://your-server-ip:9000
+p2pcopy receive 749-102 --signal ws://your-server-ip:9000
+```
+> **Privacy Note:** The signaling server never sees files, clipboard content, or encryption keys. It only relays opaque SDP strings to connect the peers and immediately terminates once the DataChannel is open.
 
 ---
 
@@ -69,28 +118,75 @@ While `p2pcopy` prioritizes the **zero-cloud storage** and **privacy** principle
 
 ```
 [Tier 1: Direct LAN / UPnP]
-          │ (Fastest, zero NAT)
+          │ (Zero NAT, Maximum Speed)
           ▼
 [Tier 2: STUN Hole-Punching]
-          │ (Handles ~80-85% of home & office NATs)
+          │ (Succeeds on ~80-85% of home & office NATs)
           ▼
 [Tier 3: Encrypted TURN Blind Relay]
             (Guaranteed delivery for Symmetric NATs, CGNAT, & strict enterprise firewalls)
 ```
 
-### The NAT Traversal Limitation
-* **STUN** allows peers to discover their public-facing IP and port. This succeeds on Full-Cone and Restricted-Cone NATs (~80-85% of standard internet connections).
-* **Symmetric NAT & Carrier-Grade NAT (CGNAT):** Standard on 4G/5G mobile carriers and enterprise firewalls. A new external port is mapped for each remote destination, making direct hole-punching mathematically impossible without port prediction.
+### The NAT Traversal Spectrum:
+1. **STUN (Direct P2P):**  
+   Discovers public IPs/ports. Works seamlessly on Full-Cone, Restricted-Cone, and Port-Restricted NATs.
+2. **Symmetric NAT & Carrier-Grade NAT (CGNAT):**  
+   Standard on mobile cellular networks (4G/5G) and strict enterprise firewalls. The router randomizes external ports for each destination endpoint, making direct UDP hole-punching impossible.
+3. **Encrypted TURN Blind Relay Fallback:**  
+   In production setups where peers are behind mutually incompatible symmetric NATs, `p2pcopy` supports TURN server configurations:
+   ```bash
+   p2pcopy send file.zip --ice turn:username:password@turn.example.com:3478
+   # Or via environment variable
+   export P2PCOPY_ICE="turn:username:password@turn.example.com:3478"
+   ```
+   **Crucially, the TURN relay only forwards encrypted DTLS frames** — zero file contents, file names, or clipboard bytes are readable by the relay.
 
-### Production Roadmap: TURN Relay Fallback
-In production environments, resilience is achieved by quietly falling back to a **blind TURN relay** (e.g. via Coturn or DERP-style relays) if ICE candidate gathering fails:
-- The relay acts solely as a blind packet forwarder.
-- It sees only encrypted DTLS/SCTP frames.
-- **Zero-knowledge privacy is 100% preserved** while guaranteeing a 100% connection success rate.
+---
 
-Users will be able to supply custom STUN/TURN servers via `--ice-servers` or the `P2PCOPY_ICE` environment variable.
+## 🧪 Running Tests
+
+The test suite exercises the entire stack end-to-end:
+```bash
+npm test
+```
+Tests included:
+1. `test/signaling.test.js`: WebSocket signaling server, room lifecycle, and auto-teardown.
+2. `test/webrtc.test.js`: WebRTC DataChannel connection negotiation and bidirectional ping-pong.
+3. `test/file-transfer.test.js`: 1MB binary transfer, backpressure buffer throttling, and SHA-256 disk verification.
+4. `test/clipboard.test.js`: Cross-machine clipboard synchronization and system clipboard integration.
+
+---
+
+## 📁 Architecture
+
+```text
+p2pcopy/
+├── bin/
+│   └── p2pcopy.js             # Global CLI executable runner
+├── src/
+│   ├── index.ts               # CLI command interface (Commander.js)
+│   ├── signaling/
+│   │   ├── server.ts          # Ephemeral in-memory WebSocket server
+│   │   ├── client.ts          # Signaling handshake client
+│   │   └── types.ts           # Wire message schemas
+│   ├── webrtc/
+│   │   ├── peer.ts            # WebRTC PeerConnection & DataChannel wrapper
+│   │   └── config.ts          # STUN / TURN resolver
+│   ├── transfer/
+│   │   ├── sender.ts          # File stream reader with backpressure
+│   │   ├── receiver.ts        # Chunk writer & SHA-256 verifier
+│   │   └── protocol.ts        # Chunk size & wire protocol definitions
+│   ├── clipboard/
+│   │   └── index.ts           # OS clipboard reader/writer (Win, Mac, Linux) & stdin
+│   └── utils/
+│       ├── code.ts            # 6-digit pairing code generator
+│       └── ui.ts              # Terminal formatting & spinners
+├── test/                      # End-to-end test suite
+├── package.json
+└── tsconfig.json
+```
 
 ---
 
 ## 📄 License
-MIT
+MIT © Krishna Tiwari
