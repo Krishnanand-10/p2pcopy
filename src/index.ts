@@ -1,5 +1,6 @@
-﻿import { Command } from "commander";
+import { Command } from "commander";
 import { UI } from "./utils/ui";
+import { EphemeralSignalingServer } from "./signaling/server";
 
 const program = new Command();
 
@@ -66,9 +67,27 @@ program
   .command("signal")
   .description("Run an ephemeral WebRTC signaling server")
   .option("-p, --port <number>", "Port to listen on", "9000")
-  .action((options: any) => {
+  .option("-h, --host <host>", "Host to bind", "0.0.0.0")
+  .action(async (options: any) => {
     UI.banner();
-    UI.info(`Starting ephemeral signaling server on port ${options.port}...`);
+    const port = parseInt(options.port, 10);
+    const server = new EphemeralSignalingServer({ port, host: options.host });
+
+    try {
+      await server.start();
+
+      const shutdown = async () => {
+        UI.info("Shutting down signaling server...");
+        await server.close();
+        process.exit(0);
+      };
+
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+    } catch (err: any) {
+      UI.error(`Server failed to start: ${err.message}`);
+      process.exit(1);
+    }
   });
 
 program.parse(process.argv);
