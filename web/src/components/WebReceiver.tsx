@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { Download, Copy, Check, ShieldCheck, Wifi, WifiOff, FileBox, Clipboard, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Download, Copy, Check, ShieldCheck, Loader2, AlertCircle, FileBox, Radio } from "lucide-react";
 
 const SIGNAL_URL = "wss://p2pcopy.onrender.com";
 
@@ -27,12 +27,22 @@ export const WebReceiver: React.FC = () => {
   const [clipText, setClipText] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Refs for WebRTC & WebSocket
+  // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const chunksRef = useRef<ArrayBuffer[]>([]);
   const startTimeRef = useRef<number>(0);
+
+  // Auto-detect code from URL hash (e.g. #842-194)
+  useEffect(() => {
+    if (window.location.hash) {
+      const hash = window.location.hash.replace("#", "").trim();
+      if (hash) {
+        setCode(hash);
+      }
+    }
+  }, []);
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return "0 B";
@@ -47,7 +57,7 @@ export const WebReceiver: React.FC = () => {
     if (!cleanCode) return;
 
     setStatus("connecting");
-    setStatusMessage(`Connecting to signaling relay (${SIGNAL_URL})...`);
+    setStatusMessage("Connecting to signaling server...");
     chunksRef.current = [];
     setReceivedBytes(0);
     setProgress(0);
@@ -78,7 +88,7 @@ export const WebReceiver: React.FC = () => {
             setStatusMessage(msg.message || "Failed to join room.");
             cleanup();
           }
-        } catch (e: any) {
+        } catch (e) {
           console.error("Signaling message error:", e);
         }
       };
@@ -127,7 +137,7 @@ export const WebReceiver: React.FC = () => {
 
       dc.onopen = () => {
         setStatus("receiving");
-        setStatusMessage("WebRTC DataChannel connected! Awaiting stream from sender...");
+        setStatusMessage("Direct WebRTC DataChannel connected! Awaiting stream...");
         startTimeRef.current = Date.now();
       };
 
@@ -144,14 +154,12 @@ export const WebReceiver: React.FC = () => {
               setFileHeader(data);
               setReceivedType("file");
               setStatusMessage(`Receiving ${data.filename} (${formatBytes(data.size)})...`);
-
-              // Acknowledge header so CLI starts sending chunks
               dc.send(JSON.stringify({ type: "FILE_HEADER_ACK" }));
             } else if (data.type === "CLIPBOARD") {
               setReceivedType("clip");
               setClipText(data.text);
               setStatus("completed");
-              setStatusMessage("Clipboard content received successfully!");
+              setStatusMessage("Clipboard payload received successfully.");
               dc.send(JSON.stringify({ type: "CLIPBOARD_ACK" }));
               cleanup();
             }
@@ -159,7 +167,6 @@ export const WebReceiver: React.FC = () => {
           return;
         }
 
-        // Binary chunk received
         if (e.data instanceof ArrayBuffer) {
           chunksRef.current.push(e.data);
           totalReceived += e.data.byteLength;
@@ -229,11 +236,9 @@ export const WebReceiver: React.FC = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    // Notify sender of completion
     dc.send(JSON.stringify({ type: "TRANSFER_COMPLETE", success: true }));
-
     setStatus("completed");
-    setStatusMessage(`File ${header.filename} downloaded successfully!`);
+    setStatusMessage(`File ${header.filename} downloaded successfully.`);
     cleanup();
   };
 
@@ -255,155 +260,103 @@ export const WebReceiver: React.FC = () => {
   };
 
   return (
-    <section id="receiver" className="w-full max-w-4xl mx-auto py-16 px-4 text-left">
-      <div className="glass-panel rounded-3xl p-6 sm:p-10 border border-white/10 shadow-2xl relative overflow-hidden backdrop-blur-2xl">
-        {/* Subtle decorative glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -ml-20 -mb-20" />
+    <section id="receiver" className="scroll-mt-24 border-t border-line py-20 text-left sm:py-28">
+      <div>
+        <h2 className="text-3xl sm:text-4xl text-ink font-normal tracking-tight">
+          Prefer the <span className="serif-italic text-mint">browser?</span>
+        </h2>
+        <p className="mt-4 max-w-[60ch] text-base leading-relaxed text-ink-soft">
+          Sending to a non-technical friend? They don&apos;t need Node.js or a terminal. Enter the 6-digit code to download files or grab clipboard text directly into this browser window over WebRTC.
+        </p>
+      </div>
 
-        <div className="relative z-10">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/[0.08]">
-            <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-xs font-mono text-emerald-300 mb-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Zero-Install Web Receiver</span>
-              </div>
-              <h3 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                Receive in Your Browser
-              </h3>
-              <p className="text-zinc-400 text-sm mt-1 font-light">
-                Non-tech friend? No terminal required. Enter the 6-digit code to stream files directly into this tab.
-              </p>
+      <div className="mt-10 max-w-2xl rounded-[16px] border border-line bg-panel p-6 sm:p-8">
+        {status === "idle" || status === "error" ? (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="6-digit pairing code (e.g. 842-194)"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleStartReceive()}
+                className="flex-1 rounded-[12px] border border-line bg-paper-2 px-4 py-3 font-mono text-sm text-ink placeholder-ink-faint focus:border-line-strong focus:outline-none"
+              />
+              <button
+                onClick={handleStartReceive}
+                disabled={!code.trim()}
+                className="rounded-[11px] bg-signal px-5 py-3 text-sm font-semibold text-signal-contrast transition-opacity duration-300 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Connect & Download
+              </button>
             </div>
 
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-500">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Direct WebRTC E2EE</span>
+            {status === "error" && (
+              <div className="flex items-center gap-2 rounded-[10px] border border-rose-500/20 bg-rose-500/10 p-3 font-mono text-xs text-rose-400">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{statusMessage}</span>
+              </div>
+            )}
+          </div>
+        ) : status === "connecting" || status === "negotiating" ? (
+          <div className="py-6 text-center space-y-3">
+            <Loader2 className="h-6 w-6 text-mint animate-spin mx-auto" />
+            <div className="font-mono text-xs text-ink-soft">{statusMessage}</div>
+          </div>
+        ) : status === "receiving" && receivedType === "file" ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between font-mono text-xs">
+              <span className="text-ink font-medium">{fileHeader?.filename}</span>
+              <span className="text-mint font-semibold">{progress}%</span>
+            </div>
+
+            <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
+              <div
+                className="bg-mint h-full transition-all duration-150"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <div className="flex justify-between font-mono text-[11px] text-ink-faint">
+              <span>{formatBytes(receivedBytes)} / {formatBytes(fileHeader?.size || 0)}</span>
+              <span>Speed: {downloadSpeed}</span>
             </div>
           </div>
-
-          {/* Form / Interactive Area */}
-          <div className="mt-8">
-            {status === "idle" || status === "error" ? (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      placeholder="e.g. 842-194"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleStartReceive()}
-                      className="w-full px-5 py-3.5 rounded-xl bg-zinc-950/80 border border-white/10 text-white placeholder-zinc-600 font-mono text-base focus:outline-none focus:border-cyan-400/80 transition-all shadow-inner"
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleStartReceive}
-                    disabled={!code.trim()}
-                    className="inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-zinc-950 font-semibold text-sm transition-all shadow-lg shadow-cyan-950/50 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
-                  >
-                    <Download className="h-4 w-4" />
-                    <span>Connect & Download</span>
-                  </button>
-                </div>
-
-                {status === "error" && (
-                  <div className="flex items-center gap-2 p-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs font-mono">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    <span>{statusMessage}</span>
-                  </div>
-                )}
+        ) : status === "completed" ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Check className="h-5 w-5 text-mint" />
+                <span className="text-sm font-medium text-ink">
+                  {receivedType === "file" ? "File downloaded to your device" : "Clipboard payload received"}
+                </span>
               </div>
-            ) : status === "connecting" || status === "negotiating" ? (
-              <div className="p-8 rounded-2xl bg-zinc-950/60 border border-white/10 text-center space-y-4">
-                <Loader2 className="h-8 w-8 text-cyan-400 animate-spin mx-auto" />
-                <div className="font-mono text-sm text-zinc-300">{statusMessage}</div>
-                <div className="text-xs text-zinc-500 font-mono">Negotiating ICE candidates & DTLS keys with sender...</div>
+              <button
+                onClick={() => {
+                  setStatus("idle");
+                  setCode("");
+                }}
+                className="font-mono text-xs text-ink-soft hover:text-ink underline underline-offset-4"
+              >
+                Receive another
+              </button>
+            </div>
+
+            {receivedType === "clip" && (
+              <div className="space-y-3 pt-2">
+                <div className="rounded-[10px] border border-line bg-paper-2 p-3 font-mono text-xs text-ink-soft break-all select-all max-h-40 overflow-y-auto">
+                  {clipText}
+                </div>
+                <button
+                  onClick={copyReceivedClip}
+                  className="rounded-[10px] bg-signal px-4 py-2 font-mono text-xs font-semibold text-signal-contrast transition-opacity hover:opacity-90"
+                >
+                  {copied ? "Copied!" : "Copy to Clipboard"}
+                </button>
               </div>
-            ) : status === "receiving" && receivedType === "file" ? (
-              <div className="p-6 rounded-2xl bg-zinc-950/80 border border-white/10 space-y-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-                      <FileBox className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-white font-mono">{fileHeader?.filename}</div>
-                      <div className="text-xs text-zinc-400 font-mono">
-                        {formatBytes(receivedBytes)} / {formatBytes(fileHeader?.size || 0)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <span className="font-mono text-sm text-cyan-300 font-bold">{progress}%</span>
-                </div>
-
-                {/* Progress bar */}
-                <div className="w-full bg-zinc-800 rounded-full h-2.5 overflow-hidden border border-white/5">
-                  <div
-                    className="bg-gradient-to-r from-cyan-400 to-emerald-400 h-full transition-all duration-150"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-
-                <div className="flex justify-between text-xs font-mono text-zinc-500">
-                  <span>Speed: <span className="text-zinc-300">{downloadSpeed}</span></span>
-                  <span className="text-emerald-400 flex items-center gap-1">
-                    <ShieldCheck className="h-3.5 w-3.5" /> Streaming via WebRTC
-                  </span>
-                </div>
-              </div>
-            ) : status === "completed" ? (
-              <div className="p-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.06] space-y-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                      <Check className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-base font-bold text-white">
-                        {receivedType === "file" ? "Download Completed!" : "Clipboard Received!"}
-                      </div>
-                      <div className="text-xs text-zinc-400 mt-0.5">
-                        {receivedType === "file"
-                          ? `Saved to your Downloads folder: ${fileHeader?.filename}`
-                          : "Received text snippet directly from peer terminal"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setStatus("idle");
-                      setCode("");
-                    }}
-                    className="px-3.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-mono text-zinc-300 transition-all"
-                  >
-                    Receive Another
-                  </button>
-                </div>
-
-                {receivedType === "clip" && (
-                  <div className="space-y-3 pt-2">
-                    <div className="p-3.5 rounded-xl bg-zinc-950 border border-white/10 text-zinc-200 font-mono text-xs break-all max-h-48 overflow-y-auto">
-                      {clipText}
-                    </div>
-
-                    <button
-                      onClick={copyReceivedClip}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold text-xs transition-all shadow-md active:scale-[0.98]"
-                    >
-                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                      <span>{copied ? "Copied to Clipboard!" : "Copy to Clipboard"}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : null}
+            )}
           </div>
-        </div>
+        ) : null}
       </div>
     </section>
   );
