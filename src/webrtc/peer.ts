@@ -125,6 +125,17 @@ export class WebRTCPeer extends EventEmitter {
     });
   }
 
+  public send(data: string | Buffer): void {
+    if (!this.dc) {
+      throw new Error("DataChannel is not initialized.");
+    }
+    if (typeof data === "string") {
+      this.dc.sendMessage(data);
+    } else {
+      this.dc.sendMessageBinary(data);
+    }
+  }
+
   public getDataChannel(): DataChannel | null {
     return this.dc;
   }

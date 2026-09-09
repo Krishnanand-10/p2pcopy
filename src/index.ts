@@ -9,6 +9,7 @@ import { SignalingClient } from "./signaling/client";
 import { WebRTCPeer } from "./webrtc/peer";
 import { FileSender } from "./transfer/sender";
 import { FileReceiver } from "./transfer/receiver";
+import { readClipboard, writeClipboard, readStdin } from "./clipboard/index";
 
 const program = new Command();
 
@@ -70,7 +71,7 @@ program
 
           console.log();
           UI.success(`File ${pc.bold(path.basename(resolvedPath))} sent and verified by receiver!`);
-          
+
           setTimeout(() => {
             peer.close();
             signalClient.close();
@@ -142,7 +143,7 @@ program
           console.log();
           UI.success(`File received successfully: ${pc.bold(result.filename)}`);
           UI.info(`Location: ${pc.cyan(result.outputPath)}`);
-          UI.info(`SHA-256 Checksum: ${pc.dim(result.sha256)} (Verified ✔)`);
+          UI.info(`SHA-256 Checksum: ${pc.dim(result.sha256)} (Verified âœ”)`);
 
           setTimeout(() => {
             peer.close();
@@ -169,25 +170,171 @@ program
 // Command: Clipboard sharing
 const clipCommand = program
   .command("clip")
-  .description("Sync clipboard contents directly between machines");
+  .description("Sync clipboard contents directly between machines")
+  .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
+  .option("--ice <servers...>", "Custom STUN/TURN server URLs")
+  .action(async (options: any) => {
+    // Default action for "p2pcopy clip" is send
+    await handleClipSend(options);
+  });
 
 clipCommand
   .command("send")
   .description("Share clipboard contents with a peer")
   .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
-  .action((options: any) => {
-    UI.banner();
-    UI.info("Broadcasting clipboard content to peer...");
+  .option("--ice <servers...>", "Custom STUN/TURN server URLs")
+  .action(async (options: any) => {
+    await handleClipSend(options);
   });
+
+async function handleClipSend(options: any) {
+  try {
+    UI.banner();
+
+    // Check piped stdin first, then system clipboard
+    const stdinContent = await readStdin();
+    const clipText = stdinContent || readClipboard();
+
+    if (!clipText || clipText.trim().length === 0) {
+      UI.warn("Clipboard is empty and no piped stdin input was provided.");
+      process.exit(1);
+    }
+
+    const preview = clipText.length > 60 ? `${clipText.slice(0, 60)}...` : clipText;
+    UI.info(`Content to share: ${pc.yellow(`"${preview.replace(/\r?\n/g, " ")}"`)} (${clipText.length} chars)`);
+
+    const pairingCode = generatePairingCode();
+    const signalUrl = options.signal;
+
+    UI.info(`Connecting to signaling server at ${pc.cyan(signalUrl)}...`);
+    const signalClient = new SignalingClient(signalUrl);
+    await signalClient.connect();
+
+    await signalClient.createRoom(pairingCode);
+    UI.pairingCode(pairingCode);
+    console.log(pc.dim(`  Receiver command: `) + pc.green(`p2pcopy clip get ${pairingCode}`));
+    console.log();
+    UI.info("Waiting for receiver to connect...");
+
+    const peer = new WebRTCPeer({
+      name: "clip-sender",
+      isInitiator: true,
+      roomId: pairingCode,
+      signalingClient: signalClient,
+      customIceServers: options.ice,
+    });
+
+    await peer.start();
+
+    peer.on("data", (raw: any) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "CLIPBOARD_ACK") {
+          UI.success("Receiver received and copied content to clipboard!");
+          setTimeout(() => {
+            peer.close();
+            signalClient.close();
+            process.exit(0);
+          }, 300);
+        }
+      } catch {}
+    });
+
+    peer.on("connected", () => {
+      UI.success("WebRTC DataChannel connected (E2EE active)!");
+      UI.info("Streaming clipboard content...");
+      peer.send(
+        JSON.stringify({
+          type: "CLIPBOARD",
+          text: clipText,
+          timestamp: Date.now(),
+        })
+      );
+    });
+
+    peer.on("error", (err) => {
+      UI.error(`Peer error: ${err.message}`);
+    });
+  } catch (err: any) {
+    UI.error(`Clipboard send failed: ${err.message}`);
+    process.exit(1);
+  }
+}
 
 clipCommand
   .command("get")
   .description("Fetch shared clipboard content from a peer")
   .argument("<code>", "Pairing code")
   .option("-s, --signal <url>", "Signaling server URL", "ws://localhost:9000")
-  .action((code: string, options: any) => {
-    UI.banner();
-    UI.info(`Fetching clipboard content for code: ${code}`);
+  .option("--ice <servers...>", "Custom STUN/TURN server URLs")
+  .option("--no-copy", "Do not copy to clipboard, only print to stdout")
+  .action(async (code: string, options: any) => {
+    try {
+      UI.banner();
+
+      const pairingCode = normalizeCode(code);
+      const signalUrl = options.signal;
+
+      UI.info(`Connecting to signaling server at ${pc.cyan(signalUrl)}...`);
+      const signalClient = new SignalingClient(signalUrl);
+      await signalClient.connect();
+
+      UI.info(`Joining room ${pc.yellow(pairingCode)}...`);
+      await signalClient.joinRoom(pairingCode);
+      UI.success("Joined room. Negotiating direct WebRTC connection...");
+
+      const peer = new WebRTCPeer({
+        name: "clip-receiver",
+        isInitiator: false,
+        roomId: pairingCode,
+        signalingClient: signalClient,
+        customIceServers: options.ice,
+      });
+
+      await peer.start();
+
+      peer.on("connected", (dc) => {
+        UI.success("WebRTC DataChannel connected (E2EE active)!");
+        UI.info("Awaiting clipboard content...");
+
+        dc.onMessage((raw: any) => {
+          try {
+            const msg = JSON.parse(raw.toString());
+            if (msg.type === "CLIPBOARD") {
+              const text = msg.text;
+
+              if (options.copy !== false) {
+                writeClipboard(text);
+                UI.success("Content copied directly to your clipboard! ðŸ“‹");
+              }
+
+              console.log();
+              console.log(pc.bold(pc.cyan("--- CLIPBOARD CONTENT ---")));
+              console.log(text);
+              console.log(pc.bold(pc.cyan("-------------------------")));
+              console.log();
+
+              dc.sendMessage(JSON.stringify({ type: "CLIPBOARD_ACK" }));
+
+              setTimeout(() => {
+                peer.close();
+                signalClient.close();
+                process.exit(0);
+              }, 300);
+            }
+          } catch (err: any) {
+            UI.error(`Failed to process clipboard content: ${err.message}`);
+          }
+        });
+      });
+
+      peer.on("error", (err) => {
+        UI.error(`Peer error: ${err.message}`);
+      });
+    } catch (err: any) {
+      UI.error(`Clipboard receive failed: ${err.message}`);
+      process.exit(1);
+    }
   });
 
 // Command: Ephemeral Signaling Relay
