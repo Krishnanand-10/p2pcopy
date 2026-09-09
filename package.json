@@ -1,0 +1,39 @@
+﻿{
+  "name": "p2pcopy",
+  "version": "0.1.0",
+  "description": "Zero-cloud, end-to-end encrypted peer-to-peer file and clipboard sharing right from your terminal.",
+  "bin": {
+    "p2pcopy": "./bin/p2pcopy.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "node ./bin/p2pcopy.js",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "p2p",
+    "webrtc",
+    "cli",
+    "file-transfer",
+    "clipboard",
+    "e2ee"
+  ],
+  "author": "Krishna tiwari",
+  "license": "MIT",
+  "dependencies": {
+    "cli-progress": "^3.12.0",
+    "commander": "^13.1.0",
+    "node-datachannel": "^0.33.3",
+    "picocolors": "^1.1.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "@types/node": "^22.13.5",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.7.3"
+  }
+}
