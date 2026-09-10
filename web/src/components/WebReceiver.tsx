@@ -7,6 +7,7 @@ import {
   Loader2,
   AlertCircle,
   FileText,
+  Clipboard,
   X,
   Share2,
 } from "lucide-react";
@@ -23,9 +24,12 @@ interface FileHeader {
 
 export const WebReceiver: React.FC = () => {
   // ==========================================
-  // SENDER STATE (Box 1: Send a File)
+  // SENDER STATE (Box 1: Send a File or Beam Clipboard)
   // ==========================================
+  const [senderMode, setSenderMode] = useState<"file" | "clip">("file");
   const [fileToSend, setFileToSend] = useState<File | null>(null);
+  const [clipToSend, setClipToSend] = useState("");
+  const [clipInputText, setClipInputText] = useState("");
   const [generatedCode, setGeneratedCode] = useState("");
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -43,6 +47,7 @@ export const WebReceiver: React.FC = () => {
   const sendPcRef = useRef<RTCPeerConnection | null>(null);
   const sendDcRef = useRef<RTCDataChannel | null>(null);
   const sendSha256Ref = useRef<string>("");
+  const clipToSendRef = useRef<string>("");
   const sendAbortRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -121,6 +126,8 @@ export const WebReceiver: React.FC = () => {
       sendDcRef.current = null;
     }
     setFileToSend(null);
+    setClipToSend("");
+    clipToSendRef.current = "";
     setGeneratedCode("");
     setSendStatus("idle");
     setSendStatusMsg("");
@@ -134,6 +141,7 @@ export const WebReceiver: React.FC = () => {
 
   const startSendFile = async (file: File) => {
     resetSender();
+    setSenderMode("file");
     setFileToSend(file);
     setSendStatus("preparing");
     setSendStatusMsg("Connecting to relay...");
@@ -168,7 +176,7 @@ export const WebReceiver: React.FC = () => {
           } else if (msg.type === "peer-joined") {
             setSendStatus("connecting");
             setSendStatusMsg("Peer joined! Establishing WebRTC...");
-            initSenderWebRTC(ws, code, file);
+            initSenderWebRTC(ws, code, "file", file);
           } else if (msg.type === "signal") {
             handleSenderSignal(msg.payload);
           } else if (msg.type === "peer-disconnected") {
@@ -194,7 +202,70 @@ export const WebReceiver: React.FC = () => {
     }
   };
 
-  const initSenderWebRTC = async (ws: WebSocket, roomId: string, file: File) => {
+  const startSendClip = async (text: string) => {
+    if (!text.trim()) return;
+    resetSender();
+    setSenderMode("clip");
+    setClipToSend(text);
+    clipToSendRef.current = text;
+    setSendStatus("preparing");
+    setSendStatusMsg("Connecting to relay...");
+    sendAbortRef.current = false;
+
+    const code = generatePairingCode();
+    setGeneratedCode(code);
+
+    try {
+      const ws = new WebSocket(SIGNAL_URL);
+      sendWsRef.current = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "create-room", roomId: code }));
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === "room-created") {
+            setSendStatus("waiting-for-peer");
+            setSendStatusMsg("Room created. Waiting for peer...");
+          } else if (msg.type === "peer-joined") {
+            setSendStatus("connecting");
+            setSendStatusMsg("Peer joined! Establishing WebRTC...");
+            initSenderWebRTC(ws, code, "clip", undefined, text);
+          } else if (msg.type === "signal") {
+            handleSenderSignal(msg.payload);
+          } else if (msg.type === "peer-disconnected") {
+            setSendError("Peer disconnected before transfer finished.");
+            setSendStatus("error");
+            resetSender();
+          } else if (msg.type === "error") {
+            setSendError(msg.message || "Signaling error.");
+            setSendStatus("error");
+          }
+        } catch (e) {
+          console.error("Sender message error:", e);
+        }
+      };
+
+      ws.onerror = () => {
+        setSendError("Failed to connect to signaling server.");
+        setSendStatus("error");
+      };
+    } catch (err: any) {
+      setSendError(err.message || "Failed to start clipboard beam.");
+      setSendStatus("error");
+    }
+  };
+
+  const initSenderWebRTC = async (
+    ws: WebSocket,
+    roomId: string,
+    mode: "file" | "clip" = "file",
+    file?: File,
+    text?: string
+  ) => {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
@@ -225,6 +296,21 @@ export const WebReceiver: React.FC = () => {
     sendDcRef.current = dc;
 
     dc.onopen = async () => {
+      if (mode === "clip") {
+        setSendStatus("streaming");
+        setSendStatusMsg("WebRTC connected! Streaming clipboard...");
+        const payload = text || clipToSendRef.current;
+        dc.send(
+          JSON.stringify({
+            type: "CLIPBOARD",
+            text: payload,
+            timestamp: Date.now(),
+          })
+        );
+        return;
+      }
+
+      if (!file) return;
       setSendStatus("streaming");
       setSendStatusMsg("WebRTC connected! Streaming...");
 
@@ -251,11 +337,14 @@ export const WebReceiver: React.FC = () => {
       if (typeof event.data === "string") {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === "FILE_HEADER_ACK") {
+          if (msg.type === "FILE_HEADER_ACK" && file) {
             streamFileChunks(file, dc);
           } else if (msg.type === "TRANSFER_COMPLETE") {
             setSendStatus("completed");
             setSendStatusMsg(`Transfer complete! Verified by receiver.`);
+          } else if (msg.type === "CLIPBOARD_ACK") {
+            setSendStatus("completed");
+            setSendStatusMsg(`Clipboard beamed! Copied by peer.`);
           }
         } catch (e) {
           console.error("Sender DC parse error:", e);
@@ -611,14 +700,44 @@ export const WebReceiver: React.FC = () => {
           </div>
 
           <h3 className="mt-3 text-lg font-bold text-white tracking-tight">
-            Send a File
+            Send File or Beam Clipboard
           </h3>
           <p className="mt-1 text-xs text-ink-soft">
             Stream directly device-to-device with end-to-end encryption.
           </p>
 
-          {/* Idle State: Sleek, comfortable dropzone */}
+          {/* Mode Switch: File vs Clipboard */}
           {sendStatus === "idle" && (
+            <div className="mt-3.5 flex items-center gap-1.5 p-1 rounded-[10px] bg-[#0c0c10] border border-line w-fit">
+              <button
+                type="button"
+                onClick={() => setSenderMode("file")}
+                className={`px-3 py-1 text-xs font-semibold rounded-[7px] transition-all flex items-center gap-1.5 ${
+                  senderMode === "file"
+                    ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-sm"
+                    : "text-ink-soft hover:text-white border border-transparent"
+                }`}
+              >
+                <UploadCloud className="h-3.5 w-3.5" />
+                <span>Send File</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSenderMode("clip")}
+                className={`px-3 py-1 text-xs font-semibold rounded-[7px] transition-all flex items-center gap-1.5 ${
+                  senderMode === "clip"
+                    ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shadow-sm"
+                    : "text-ink-soft hover:text-white border border-transparent"
+                }`}
+              >
+                <Clipboard className="h-3.5 w-3.5" />
+                <span>Beam Clipboard</span>
+              </button>
+            </div>
+          )}
+
+          {/* Idle State: File Dropzone OR Clipboard Textarea */}
+          {sendStatus === "idle" && senderMode === "file" && (
             <div className="mt-4">
               <div
                 onDragOver={(e) => {
@@ -668,16 +787,64 @@ export const WebReceiver: React.FC = () => {
             </div>
           )}
 
+          {/* Idle State: Clipboard Text Input */}
+          {sendStatus === "idle" && senderMode === "clip" && (
+            <div className="mt-3.5 space-y-2.5">
+              <textarea
+                value={clipInputText}
+                onChange={(e) => setClipInputText(e.target.value)}
+                placeholder="Type or paste text, secret token, or code snippet to beam..."
+                rows={3}
+                className="w-full rounded-[10px] border border-[#2a2a36] bg-[#0c0c10] p-3 font-mono text-xs text-white placeholder-ink-faint focus:border-emerald-500/50 focus:outline-none transition-colors resize-none"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const t = await navigator.clipboard.readText();
+                      if (t) setClipInputText(t);
+                    } catch {}
+                  }}
+                  className="rounded-[8px] border border-line bg-paper-2 px-3 py-1.5 font-mono text-xs text-ink-soft hover:border-line-strong hover:text-white transition-colors"
+                >
+                  Paste from pasteboard
+                </button>
+                <button
+                  type="button"
+                  disabled={!clipInputText.trim()}
+                  onClick={() => startSendClip(clipInputText)}
+                  className="rounded-[8px] bg-emerald-400 px-4 py-1.5 font-semibold text-xs text-black hover:bg-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm flex items-center gap-1.5"
+                >
+                  <span>Beam Text</span>
+                  <span className="font-bold">➔</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Waiting for Peer: Pairing code display */}
           {sendStatus === "waiting-for-peer" && (
             <div className="mt-5 space-y-3.5">
-              <div className="flex items-center justify-between rounded-[10px] border border-line bg-paper-2 p-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <FileText className="h-4 w-4 text-emerald-400 shrink-0" />
-                  <span className="truncate text-xs font-semibold text-white">{fileToSend?.name}</span>
+              {senderMode === "file" ? (
+                <div className="flex items-center justify-between rounded-[10px] border border-line bg-paper-2 p-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <FileText className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <span className="truncate text-xs font-semibold text-white">{fileToSend?.name}</span>
+                  </div>
+                  <span className="text-xs font-mono text-ink-soft shrink-0">{formatBytes(fileToSend?.size || 0)}</span>
                 </div>
-                <span className="text-xs font-mono text-ink-soft shrink-0">{formatBytes(fileToSend?.size || 0)}</span>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between rounded-[10px] border border-line bg-paper-2 p-3 font-mono text-xs text-ink-soft">
+                  <div className="flex items-center gap-2 truncate">
+                    <Clipboard className="h-4 w-4 text-emerald-400 shrink-0" />
+                    <span className="truncate text-white font-medium">
+                      "{clipToSend.slice(0, 45)}{clipToSend.length > 45 ? "..." : ""}"
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-ink-faint">{clipToSend.length} chars</span>
+                </div>
+              )}
 
               <div className="rounded-[12px] border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
                 <span className="font-mono text-xs uppercase tracking-widest text-emerald-400 font-semibold">
@@ -698,7 +865,9 @@ export const WebReceiver: React.FC = () => {
 
                 <div className="mt-2.5 inline-flex items-center gap-2 rounded-[8px] border border-line bg-paper-2 px-3 py-1.5 font-mono text-xs text-ink">
                   <span className="text-emerald-400 font-bold">$</span>
-                  <span>p2pcopy receive {generatedCode}</span>
+                  <span>
+                    {senderMode === "clip" ? `p2pcopy clip get ${generatedCode}` : `p2pcopy receive ${generatedCode}`}
+                  </span>
                 </div>
 
                 <div className="mt-2.5 flex justify-center">
@@ -733,17 +902,26 @@ export const WebReceiver: React.FC = () => {
           {/* Streaming Progress */}
           {sendStatus === "streaming" && (
             <div className="mt-5 space-y-3">
-              <div className="flex justify-between font-mono text-xs">
-                <span className="text-white truncate max-w-[240px] font-medium">{fileToSend?.name}</span>
-                <span className="text-emerald-400 font-semibold">{sendProgress}%</span>
-              </div>
-              <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
-                <div className="bg-emerald-400 h-full transition-all duration-150" style={{ width: `${sendProgress}%` }} />
-              </div>
-              <div className="flex justify-between font-mono text-[11px] text-ink-soft">
-                <span>{formatBytes(sendTransferred)} / {formatBytes(fileToSend?.size || 0)}</span>
-                <span>Speed: {sendSpeed}</span>
-              </div>
+              {senderMode === "file" ? (
+                <>
+                  <div className="flex justify-between font-mono text-xs">
+                    <span className="text-white truncate max-w-[240px] font-medium">{fileToSend?.name}</span>
+                    <span className="text-emerald-400 font-semibold">{sendProgress}%</span>
+                  </div>
+                  <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
+                    <div className="bg-emerald-400 h-full transition-all duration-150" style={{ width: `${sendProgress}%` }} />
+                  </div>
+                  <div className="flex justify-between font-mono text-[11px] text-ink-soft">
+                    <span>{formatBytes(sendTransferred)} / {formatBytes(fileToSend?.size || 0)}</span>
+                    <span>Speed: {sendSpeed}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="py-4 text-center space-y-2">
+                  <Loader2 className="h-5 w-5 text-emerald-400 animate-spin mx-auto" />
+                  <div className="font-mono text-xs text-ink-soft">Streaming clipboard to peer...</div>
+                </div>
+              )}
             </div>
           )}
 
@@ -755,15 +933,19 @@ export const WebReceiver: React.FC = () => {
                   <Check className="h-4 w-4 text-emerald-400" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-semibold text-white">File Transferred Successfully</h4>
-                  <p className="text-xs text-ink-soft">Verified directly by receiver via SHA-256.</p>
+                  <h4 className="text-sm font-semibold text-white">
+                    {senderMode === "file" ? "File Transferred Successfully" : "Clipboard Beamed Successfully"}
+                  </h4>
+                  <p className="text-xs text-ink-soft">
+                    {senderMode === "file" ? "Verified directly by receiver via SHA-256." : "Directly received and copied to peer's pasteboard."}
+                  </p>
                 </div>
               </div>
               <button
                 onClick={resetSender}
                 className="rounded-[10px] bg-emerald-400 px-4 py-2 text-xs font-semibold text-black transition-opacity hover:bg-emerald-300"
               >
-                Send Another File
+                {senderMode === "file" ? "Send Another File" : "Beam Another Item"}
               </button>
             </div>
           )}
