@@ -3,6 +3,7 @@ import { Navbar } from "./components/Navbar";
 import { TerminalDemo } from "./components/TerminalDemo";
 import { FeatureGrid } from "./components/FeatureGrid";
 import { CommandsSection } from "./components/CommandsSection";
+import { InteroperabilitySection } from "./components/InteroperabilitySection";
 import { WebReceiver } from "./components/WebReceiver";
 import { LibrarySection } from "./components/LibrarySection";
 import { Copy, Check } from "lucide-react";
@@ -64,7 +65,7 @@ export const App: React.FC = () => {
               href="#receiver"
               className="rounded-[11px] border border-line-strong px-5 py-3 text-sm font-medium text-white transition-colors duration-300 hover:bg-paper-2 hover:border-white/20"
             >
-              Try Web Receiver
+              Try Web Transfer
             </a>
           </div>
 
@@ -79,6 +80,9 @@ export const App: React.FC = () => {
 
         {/* Commands List */}
         <CommandsSection />
+
+        {/* Full Cross-Platform Interoperability (4 Transfer Modes) */}
+        <InteroperabilitySection />
 
         {/* In-Browser Web Receiver */}
         <WebReceiver />

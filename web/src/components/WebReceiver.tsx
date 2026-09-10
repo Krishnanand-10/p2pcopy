@@ -1,5 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Download, Copy, Check, ShieldCheck, Loader2, AlertCircle } from "lucide-react";
+import {
+  UploadCloud,
+  Download,
+  Copy,
+  Check,
+  Loader2,
+  AlertCircle,
+  FileText,
+  X,
+  Share2,
+} from "lucide-react";
 
 const SIGNAL_URL = "wss://p2pcopy.onrender.com";
 
@@ -12,64 +22,385 @@ interface FileHeader {
 }
 
 export const WebReceiver: React.FC = () => {
-  const [code, setCode] = useState("");
-  const [status, setStatus] = useState<"idle" | "connecting" | "negotiating" | "receiving" | "completed" | "error">("idle");
-  const [statusMessage, setStatusMessage] = useState("");
+  // ==========================================
+  // SENDER STATE (Box 1: Send a File)
+  // ==========================================
+  const [fileToSend, setFileToSend] = useState<File | null>(null);
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [sendStatus, setSendStatus] = useState<
+    "idle" | "preparing" | "waiting-for-peer" | "connecting" | "streaming" | "completed" | "error"
+  >("idle");
+  const [sendStatusMsg, setSendStatusMsg] = useState("");
+  const [sendError, setSendError] = useState("");
+  const [sendProgress, setSendProgress] = useState(0);
+  const [sendTransferred, setSendTransferred] = useState(0);
+  const [sendSpeed, setSendSpeed] = useState("0 B/s");
+
+  const sendWsRef = useRef<WebSocket | null>(null);
+  const sendPcRef = useRef<RTCPeerConnection | null>(null);
+  const sendDcRef = useRef<RTCDataChannel | null>(null);
+  const sendSha256Ref = useRef<string>("");
+  const sendAbortRef = useRef<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // ==========================================
+  // RECEIVER STATE (Box 2: Receive with Code)
+  // ==========================================
+  const [receiveCode, setReceiveCode] = useState("");
+  const [receiveStatus, setReceiveStatus] = useState<
+    "idle" | "connecting" | "negotiating" | "receiving" | "completed" | "error"
+  >("idle");
+  const [receiveStatusMsg, setReceiveStatusMsg] = useState("");
+  const [receiveError, setReceiveError] = useState("");
   const [receivedType, setReceivedType] = useState<"file" | "clip" | null>(null);
-
-  // File download state
-  const [fileHeader, setFileHeader] = useState<FileHeader | null>(null);
-  const [receivedBytes, setReceivedBytes] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [downloadSpeed, setDownloadSpeed] = useState("0 B/s");
-
-  // Clipboard state
+  const [recvHeader, setRecvHeader] = useState<FileHeader | null>(null);
+  const [recvBytes, setRecvBytes] = useState(0);
+  const [recvProgress, setRecvProgress] = useState(0);
+  const [recvSpeed, setRecvSpeed] = useState("0 B/s");
   const [clipText, setClipText] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [copiedClip, setCopiedClip] = useState(false);
 
-  // Refs
-  const wsRef = useRef<WebSocket | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const dcRef = useRef<RTCDataChannel | null>(null);
-  const chunksRef = useRef<ArrayBuffer[]>([]);
-  const startTimeRef = useRef<number>(0);
+  const recvWsRef = useRef<WebSocket | null>(null);
+  const recvPcRef = useRef<RTCPeerConnection | null>(null);
+  const recvDcRef = useRef<RTCDataChannel | null>(null);
+  const recvChunksRef = useRef<ArrayBuffer[]>([]);
+  const recvStartTimeRef = useRef<number>(0);
+
+  // Format bytes helper
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+
+  // Generate 6-digit code XXX-XXX
+  const generatePairingCode = () => {
+    const num1 = Math.floor(100 + Math.random() * 900);
+    const num2 = Math.floor(100 + Math.random() * 900);
+    return `${num1}-${num2}`;
+  };
 
   // Auto-detect code from URL hash (e.g. #842-194)
   useEffect(() => {
     if (window.location.hash) {
       const hash = window.location.hash.replace("#", "").trim();
-      if (hash) {
-        setCode(hash);
+      if (hash && !["receiver", "features", "commands", "library"].includes(hash)) {
+        setReceiveCode(hash);
       }
     }
   }, []);
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  // Compute SHA-256 hash
+  const computeSHA256 = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    const hashArray = Array.from(new Uint8Array(digest));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   };
 
-  const handleStartReceive = () => {
-    const cleanCode = code.trim().replace(/\s+/g, "");
-    if (!cleanCode) return;
+  // ----------------------------------------------------
+  // SENDER ACTIONS
+  // ----------------------------------------------------
+  const resetSender = () => {
+    sendAbortRef.current = true;
+    if (sendWsRef.current) {
+      sendWsRef.current.close();
+      sendWsRef.current = null;
+    }
+    if (sendPcRef.current) {
+      sendPcRef.current.close();
+      sendPcRef.current = null;
+    }
+    if (sendDcRef.current) {
+      sendDcRef.current.close();
+      sendDcRef.current = null;
+    }
+    setFileToSend(null);
+    setGeneratedCode("");
+    setSendStatus("idle");
+    setSendStatusMsg("");
+    setSendError("");
+    setSendProgress(0);
+    setSendTransferred(0);
+    setSendSpeed("0 B/s");
+    setCopiedCode(false);
+    setCopiedLink(false);
+  };
 
-    setStatus("connecting");
-    setStatusMessage("Connecting to signaling server...");
-    chunksRef.current = [];
-    setReceivedBytes(0);
-    setProgress(0);
-    setFileHeader(null);
-    setClipText("");
+  const startSendFile = async (file: File) => {
+    resetSender();
+    setFileToSend(file);
+    setSendStatus("preparing");
+    setSendStatusMsg("Connecting to relay...");
+    sendAbortRef.current = false;
+
+    const code = generatePairingCode();
+    setGeneratedCode(code);
+
+    computeSHA256(file)
+      .then((hash) => {
+        sendSha256Ref.current = hash;
+      })
+      .catch((err) => {
+        console.warn("SHA-256 calculation:", err);
+      });
 
     try {
       const ws = new WebSocket(SIGNAL_URL);
-      wsRef.current = ws;
+      sendWsRef.current = ws;
 
       ws.onopen = () => {
-        setStatusMessage(`Joining room ${cleanCode}...`);
+        ws.send(JSON.stringify({ type: "create-room", roomId: code }));
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === "room-created") {
+            setSendStatus("waiting-for-peer");
+            setSendStatusMsg("Room created. Waiting for peer...");
+          } else if (msg.type === "peer-joined") {
+            setSendStatus("connecting");
+            setSendStatusMsg("Peer joined! Establishing WebRTC...");
+            initSenderWebRTC(ws, code, file);
+          } else if (msg.type === "signal") {
+            handleSenderSignal(msg.payload);
+          } else if (msg.type === "peer-disconnected") {
+            setSendError("Peer disconnected before transfer finished.");
+            setSendStatus("error");
+            resetSender();
+          } else if (msg.type === "error") {
+            setSendError(msg.message || "Signaling error.");
+            setSendStatus("error");
+          }
+        } catch (e) {
+          console.error("Sender message error:", e);
+        }
+      };
+
+      ws.onerror = () => {
+        setSendError("Failed to connect to signaling server.");
+        setSendStatus("error");
+      };
+    } catch (err: any) {
+      setSendError(err.message || "Failed to start sending.");
+      setSendStatus("error");
+    }
+  };
+
+  const initSenderWebRTC = async (ws: WebSocket, roomId: string, file: File) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
+    sendPcRef.current = pc;
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "signal",
+            roomId,
+            payload: {
+              type: "candidate",
+              candidate: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+            },
+          })
+        );
+      }
+    };
+
+    const dc = pc.createDataChannel("p2pcopy-datachannel");
+    dc.binaryType = "arraybuffer";
+    sendDcRef.current = dc;
+
+    dc.onopen = async () => {
+      setSendStatus("streaming");
+      setSendStatusMsg("WebRTC connected! Streaming...");
+
+      if (!sendSha256Ref.current) {
+        try {
+          sendSha256Ref.current = await computeSHA256(file);
+        } catch {
+          sendSha256Ref.current = "0000000000000000000000000000000000000000000000000000000000000000";
+        }
+      }
+
+      const header: FileHeader = {
+        type: "FILE_HEADER",
+        filename: file.name,
+        size: file.size,
+        sha256: sendSha256Ref.current,
+        chunkSize: 64 * 1024,
+      };
+
+      dc.send(JSON.stringify(header));
+    };
+
+    dc.onmessage = (event) => {
+      if (typeof event.data === "string") {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "FILE_HEADER_ACK") {
+            streamFileChunks(file, dc);
+          } else if (msg.type === "TRANSFER_COMPLETE") {
+            setSendStatus("completed");
+            setSendStatusMsg(`Transfer complete! Verified by receiver.`);
+          }
+        } catch (e) {
+          console.error("Sender DC parse error:", e);
+        }
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "signal",
+          roomId,
+          payload: {
+            type: "offer",
+            sdp: offer.sdp,
+          },
+        })
+      );
+    }
+  };
+
+  const handleSenderSignal = async (payload: any) => {
+    const pc = sendPcRef.current;
+    if (!pc) return;
+
+    if (payload.type === "answer") {
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: payload.sdp }));
+    } else if (payload.type === "candidate") {
+      try {
+        await pc.addIceCandidate(
+          new RTCIceCandidate({
+            candidate: payload.candidate,
+            sdpMid: payload.sdpMid,
+            sdpMLineIndex: payload.sdpMLineIndex,
+          })
+        );
+      } catch (e) {
+        console.error("Error adding sender candidate:", e);
+      }
+    }
+  };
+
+  const streamFileChunks = async (file: File, dc: RTCDataChannel) => {
+    const CHUNK_SIZE = 64 * 1024;
+    const HIGH_WATER_MARK = 1024 * 1024;
+    dc.bufferedAmountLowThreshold = 256 * 1024;
+
+    let offset = 0;
+    const startTime = Date.now();
+
+    try {
+      while (offset < file.size && !sendAbortRef.current && dc.readyState === "open") {
+        if (dc.bufferedAmount > HIGH_WATER_MARK) {
+          await new Promise<void>((resolve) => {
+            const onLow = () => {
+              dc.removeEventListener("bufferedamountlow", onLow);
+              resolve();
+            };
+            dc.addEventListener("bufferedamountlow", onLow);
+          });
+        }
+
+        if (sendAbortRef.current || dc.readyState !== "open") break;
+
+        const slice = file.slice(offset, offset + CHUNK_SIZE);
+        const buffer = await slice.arrayBuffer();
+        dc.send(buffer);
+        offset += buffer.byteLength;
+
+        const transferred = Math.min(offset, file.size);
+        setSendTransferred(transferred);
+        const pct = Math.min(100, Math.round((transferred / file.size) * 100));
+        setSendProgress(pct);
+
+        const elapsedSec = (Date.now() - startTime) / 1000;
+        const speed = elapsedSec > 0 ? transferred / elapsedSec : 0;
+        setSendSpeed(`${formatBytes(speed)}/s`);
+      }
+    } catch (err: any) {
+      setSendError(`Streaming error: ${err.message}`);
+      setSendStatus("error");
+    }
+  };
+
+  const copyPairingCode = () => {
+    navigator.clipboard.writeText(generatedCode);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const copyShareLink = () => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}#${generatedCode}`;
+    navigator.clipboard.writeText(shareUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  // ----------------------------------------------------
+  // RECEIVER ACTIONS
+  // ----------------------------------------------------
+  const resetReceiver = () => {
+    if (recvWsRef.current) {
+      recvWsRef.current.close();
+      recvWsRef.current = null;
+    }
+    if (recvPcRef.current) {
+      recvPcRef.current.close();
+      recvPcRef.current = null;
+    }
+    if (recvDcRef.current) {
+      recvDcRef.current.close();
+      recvDcRef.current = null;
+    }
+    recvChunksRef.current = [];
+    setReceiveCode("");
+    setReceiveStatus("idle");
+    setReceiveStatusMsg("");
+    setReceiveError("");
+    setReceivedType(null);
+    setRecvHeader(null);
+    setRecvBytes(0);
+    setRecvProgress(0);
+    setRecvSpeed("0 B/s");
+    setClipText("");
+    setCopiedClip(false);
+  };
+
+  const handleStartReceive = () => {
+    const cleanCode = receiveCode.trim().replace(/\s+/g, "");
+    if (!cleanCode) return;
+
+    resetReceiver();
+    setReceiveCode(cleanCode);
+    setReceiveStatus("connecting");
+    setReceiveStatusMsg("Connecting to relay...");
+
+    try {
+      const ws = new WebSocket(SIGNAL_URL);
+      recvWsRef.current = ws;
+
+      ws.onopen = () => {
+        setReceiveStatusMsg(`Joining ${cleanCode}...`);
         ws.send(JSON.stringify({ type: "join-room", roomId: cleanCode }));
       };
 
@@ -78,40 +409,38 @@ export const WebReceiver: React.FC = () => {
           const msg = JSON.parse(event.data);
 
           if (msg.type === "room-joined") {
-            setStatus("negotiating");
-            setStatusMessage("Joined room. Negotiating WebRTC peer connection...");
-            initWebRTC(ws, cleanCode);
+            setReceiveStatus("negotiating");
+            setReceiveStatusMsg("Negotiating WebRTC...");
+            initReceiverWebRTC(ws, cleanCode);
           } else if (msg.type === "signal") {
-            handleSignal(msg.payload, ws, cleanCode);
+            handleReceiverSignal(msg.payload, ws, cleanCode);
           } else if (msg.type === "error") {
-            setStatus("error");
-            setStatusMessage(msg.message || "Failed to join room.");
-            cleanup();
+            setReceiveError(msg.message || "Failed to join room.");
+            setReceiveStatus("error");
           }
         } catch (e) {
-          console.error("Signaling message error:", e);
+          console.error("Receiver message error:", e);
         }
       };
 
       ws.onerror = () => {
-        setStatus("error");
-        setStatusMessage("Failed to connect to signaling server.");
-        cleanup();
+        setReceiveError("Failed to connect to relay.");
+        setReceiveStatus("error");
       };
     } catch (err: any) {
-      setStatus("error");
-      setStatusMessage(err.message || "Connection failed.");
+      setReceiveError(err.message || "Connection failed.");
+      setReceiveStatus("error");
     }
   };
 
-  const initWebRTC = (ws: WebSocket, roomId: string) => {
+  const initReceiverWebRTC = (ws: WebSocket, roomId: string) => {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
       ],
     });
-    pcRef.current = pc;
+    recvPcRef.current = pc;
 
     pc.onicecandidate = (event) => {
       if (event.candidate && ws.readyState === WebSocket.OPEN) {
@@ -132,17 +461,17 @@ export const WebReceiver: React.FC = () => {
 
     pc.ondatachannel = (event) => {
       const dc = event.channel;
-      dcRef.current = dc;
+      recvDcRef.current = dc;
       dc.binaryType = "arraybuffer";
 
       dc.onopen = () => {
-        setStatus("receiving");
-        setStatusMessage("Direct WebRTC DataChannel connected! Awaiting stream...");
-        startTimeRef.current = Date.now();
+        setReceiveStatus("receiving");
+        setReceiveStatusMsg("Connected! Awaiting stream...");
+        recvStartTimeRef.current = Date.now();
       };
 
       let currentHeader: FileHeader | null = null;
-      let totalReceived = 0;
+      let totalRecv = 0;
 
       dc.onmessage = (e) => {
         if (typeof e.data === "string") {
@@ -151,36 +480,35 @@ export const WebReceiver: React.FC = () => {
 
             if (data.type === "FILE_HEADER") {
               currentHeader = data;
-              setFileHeader(data);
+              setRecvHeader(data);
               setReceivedType("file");
-              setStatusMessage(`Receiving ${data.filename} (${formatBytes(data.size)})...`);
+              setReceiveStatusMsg(`Receiving ${data.filename}...`);
               dc.send(JSON.stringify({ type: "FILE_HEADER_ACK" }));
             } else if (data.type === "CLIPBOARD") {
               setReceivedType("clip");
               setClipText(data.text);
-              setStatus("completed");
-              setStatusMessage("Clipboard payload received successfully.");
+              setReceiveStatus("completed");
+              setReceiveStatusMsg("Clipboard payload received.");
               dc.send(JSON.stringify({ type: "CLIPBOARD_ACK" }));
-              cleanup();
             }
           } catch {}
           return;
         }
 
         if (e.data instanceof ArrayBuffer) {
-          chunksRef.current.push(e.data);
-          totalReceived += e.data.byteLength;
-          setReceivedBytes(totalReceived);
+          recvChunksRef.current.push(e.data);
+          totalRecv += e.data.byteLength;
+          setRecvBytes(totalRecv);
 
           if (currentHeader && currentHeader.size > 0) {
-            const percent = Math.min(100, Math.round((totalReceived / currentHeader.size) * 100));
-            setProgress(percent);
+            const pct = Math.min(100, Math.round((totalRecv / currentHeader.size) * 100));
+            setRecvProgress(pct);
 
-            const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
-            const speed = elapsedSec > 0 ? totalReceived / elapsedSec : 0;
-            setDownloadSpeed(`${formatBytes(speed)}/s`);
+            const elapsedSec = (Date.now() - recvStartTimeRef.current) / 1000;
+            const speed = elapsedSec > 0 ? totalRecv / elapsedSec : 0;
+            setRecvSpeed(`${formatBytes(speed)}/s`);
 
-            if (totalReceived >= currentHeader.size) {
+            if (totalRecv >= currentHeader.size) {
               triggerFileDownload(currentHeader, dc);
             }
           }
@@ -189,8 +517,8 @@ export const WebReceiver: React.FC = () => {
     };
   };
 
-  const handleSignal = async (payload: any, ws: WebSocket, roomId: string) => {
-    const pc = pcRef.current;
+  const handleReceiverSignal = async (payload: any, ws: WebSocket, roomId: string) => {
+    const pc = recvPcRef.current;
     if (!pc) return;
 
     if (payload.type === "offer") {
@@ -220,13 +548,13 @@ export const WebReceiver: React.FC = () => {
           })
         );
       } catch (e) {
-        console.error("Failed to add remote candidate:", e);
+        console.error("Error adding candidate:", e);
       }
     }
   };
 
   const triggerFileDownload = (header: FileHeader, dc: RTCDataChannel) => {
-    const blob = new Blob(chunksRef.current);
+    const blob = new Blob(recvChunksRef.current);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -237,127 +565,341 @@ export const WebReceiver: React.FC = () => {
     URL.revokeObjectURL(url);
 
     dc.send(JSON.stringify({ type: "TRANSFER_COMPLETE", success: true }));
-    setStatus("completed");
-    setStatusMessage(`File ${header.filename} downloaded successfully.`);
-    cleanup();
-  };
-
-  const cleanup = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-    }
+    setReceiveStatus("completed");
+    setReceiveStatusMsg(`Downloaded ${header.filename}`);
   };
 
   const copyReceivedClip = () => {
     navigator.clipboard.writeText(clipText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedClip(true);
+    setTimeout(() => setCopiedClip(false), 2000);
   };
 
   return (
-    <section id="receiver" className="scroll-mt-24 border-t border-line py-20 text-left sm:py-28">
+    <section id="receiver" className="scroll-mt-24 border-t border-line py-16 text-left sm:py-20">
       <div>
+        {/* Clean, pure white section heading */}
         <h2 className="text-3xl sm:text-4xl text-white font-bold tracking-tight">
           Prefer the browser?
         </h2>
-        <p className="mt-4 max-w-[60ch] text-base leading-relaxed text-ink-soft">
-          Enter your 6-digit pairing code to download files or receive clipboard text directly in this browser window over WebRTC.
+        {/* Raw muted subtext */}
+        <p className="mt-3 max-w-[58ch] text-sm sm:text-base leading-relaxed text-ink-soft">
+          Send files or receive payloads directly in this browser window over WebRTC. Zero cloud storage, no accounts, end-to-end encrypted.
         </p>
       </div>
 
-      <div className="mt-10 max-w-2xl rounded-[16px] border border-line bg-panel p-6 sm:p-8">
-        {status === "idle" || status === "error" ? (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
-                placeholder="6-digit pairing code (e.g. 842-194)"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleStartReceive()}
-                className="flex-1 rounded-[12px] border border-line bg-paper-2 px-4 py-3 font-mono text-sm text-ink placeholder-ink-faint focus:border-[#00d2ff]/60 focus:outline-none"
-              />
+      {/* Stacked Layout: One below the other with comfortable max-w-[540px] size & exact emerald subheadings */}
+      <div className="mt-8 flex flex-col space-y-4 max-w-[540px]">
+        {/* ==================================================== */}
+        {/* BOX 1: SEND A FILE (Comfortable, Sleek & Emerald)     */}
+        {/* ==================================================== */}
+        <div className="rounded-[14px] border border-[#2a2a36] bg-panel p-5 sm:p-6 hover:border-[#3e3e52] transition-colors shadow-sm">
+          <div className="flex items-center justify-between">
+            {/* Exact emerald badge matching the subheadings in cards above */}
+            <span className="font-mono text-xs font-semibold px-2.5 py-1 rounded-[6px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+              Web Sender
+            </span>
+            {sendStatus !== "idle" && (
               <button
-                onClick={handleStartReceive}
-                disabled={!code.trim()}
-                className="rounded-[11px] bg-[#00d2ff] px-5 py-3 text-sm font-semibold text-black transition-opacity duration-300 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                onClick={resetSender}
+                className="rounded-[6px] border border-line p-1.5 text-ink-soft hover:text-white hover:border-line-strong transition-colors"
+                title="Cancel transfer"
               >
-                Connect & Download
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          <h3 className="mt-3 text-lg font-bold text-white tracking-tight">
+            Send a File
+          </h3>
+          <p className="mt-1 text-xs text-ink-soft">
+            Stream directly device-to-device with end-to-end encryption.
+          </p>
+
+          {/* Idle State: Sleek, comfortable dropzone */}
+          {sendStatus === "idle" && (
+            <div className="mt-4">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    startSendFile(e.dataTransfer.files[0]);
+                  }
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`group flex flex-col sm:flex-row items-center justify-center gap-3 rounded-[12px] border-2 border-dashed py-4 px-4 text-center sm:text-left cursor-pointer transition-all ${
+                  isDragging
+                    ? "border-emerald-400 bg-emerald-500/10"
+                    : "border-[#2a2a36] bg-[#0c0c10] hover:border-emerald-400/50 hover:bg-paper-2"
+                }`}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      startSendFile(e.target.files[0]);
+                    }
+                  }}
+                  className="hidden"
+                />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[#2a2a36] bg-paper-2 group-hover:border-emerald-500/30 transition-colors">
+                  <UploadCloud className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    Drag & drop any file to send
+                  </p>
+                  <p className="text-xs text-ink-soft mt-0.5">
+                    or <span className="text-emerald-400 underline underline-offset-4 decoration-emerald-500/30 group-hover:decoration-emerald-400 font-medium">browse from device</span> &bull; unlimited size
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Waiting for Peer: Pairing code display */}
+          {sendStatus === "waiting-for-peer" && (
+            <div className="mt-5 space-y-3.5">
+              <div className="flex items-center justify-between rounded-[10px] border border-line bg-paper-2 p-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <FileText className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <span className="truncate text-xs font-semibold text-white">{fileToSend?.name}</span>
+                </div>
+                <span className="text-xs font-mono text-ink-soft shrink-0">{formatBytes(fileToSend?.size || 0)}</span>
+              </div>
+
+              <div className="rounded-[12px] border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
+                <span className="font-mono text-xs uppercase tracking-widest text-emerald-400 font-semibold">
+                  Pairing Code
+                </span>
+                <div className="mt-1.5 flex items-center justify-center gap-3">
+                  <span className="font-mono text-3xl font-bold tracking-widest text-white select-all">
+                    {generatedCode}
+                  </span>
+                  <button
+                    onClick={copyPairingCode}
+                    className="rounded-[8px] border border-line p-2 text-ink-soft hover:text-white hover:border-line-strong transition-colors"
+                    title="Copy code"
+                  >
+                    {copiedCode ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </div>
+
+                <div className="mt-2.5 inline-flex items-center gap-2 rounded-[8px] border border-line bg-paper-2 px-3 py-1.5 font-mono text-xs text-ink">
+                  <span className="text-emerald-400 font-bold">$</span>
+                  <span>p2pcopy receive {generatedCode}</span>
+                </div>
+
+                <div className="mt-2.5 flex justify-center">
+                  <button
+                    onClick={copyShareLink}
+                    className="inline-flex items-center gap-1.5 font-mono text-xs text-ink-soft hover:text-white transition-colors"
+                  >
+                    <Share2 className="h-3 w-3" />
+                    <span>{copiedLink ? "Link copied!" : "Copy browser share link"}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-xs font-mono text-ink-soft">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>Waiting for receiver to connect...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Preparing / Connecting Spinner */}
+          {(sendStatus === "preparing" || sendStatus === "connecting") && (
+            <div className="py-8 text-center space-y-2.5">
+              <Loader2 className="h-5 w-5 text-emerald-400 animate-spin mx-auto" />
+              <div className="font-mono text-xs text-ink-soft">{sendStatusMsg}</div>
+            </div>
+          )}
+
+          {/* Streaming Progress */}
+          {sendStatus === "streaming" && (
+            <div className="mt-5 space-y-3">
+              <div className="flex justify-between font-mono text-xs">
+                <span className="text-white truncate max-w-[240px] font-medium">{fileToSend?.name}</span>
+                <span className="text-emerald-400 font-semibold">{sendProgress}%</span>
+              </div>
+              <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
+                <div className="bg-emerald-400 h-full transition-all duration-150" style={{ width: `${sendProgress}%` }} />
+              </div>
+              <div className="flex justify-between font-mono text-[11px] text-ink-soft">
+                <span>{formatBytes(sendTransferred)} / {formatBytes(fileToSend?.size || 0)}</span>
+                <span>Speed: {sendSpeed}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Completed State */}
+          {sendStatus === "completed" && (
+            <div className="mt-5 space-y-3 py-1">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                  <Check className="h-4 w-4 text-emerald-400" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-white">File Transferred Successfully</h4>
+                  <p className="text-xs text-ink-soft">Verified directly by receiver via SHA-256.</p>
+                </div>
+              </div>
+              <button
+                onClick={resetSender}
+                className="rounded-[10px] bg-emerald-400 px-4 py-2 text-xs font-semibold text-black transition-opacity hover:bg-emerald-300"
+              >
+                Send Another File
               </button>
             </div>
+          )}
 
-            {status === "error" && (
+          {/* Error State */}
+          {sendStatus === "error" && (
+            <div className="mt-5 space-y-2.5">
               <div className="flex items-center gap-2 rounded-[10px] border border-rose-500/20 bg-rose-500/10 p-3 font-mono text-xs text-rose-400">
                 <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{statusMessage}</span>
+                <span className="truncate">{sendError || "Transfer failed."}</span>
               </div>
-            )}
-          </div>
-        ) : status === "connecting" || status === "negotiating" ? (
-          <div className="py-6 text-center space-y-3">
-            <Loader2 className="h-6 w-6 text-[#00d2ff] animate-spin mx-auto" />
-            <div className="font-mono text-xs text-ink-soft">{statusMessage}</div>
-          </div>
-        ) : status === "receiving" && receivedType === "file" ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between font-mono text-xs">
-              <span className="text-ink font-medium">{fileHeader?.filename}</span>
-              <span className="text-[#00d2ff] font-semibold">{progress}%</span>
-            </div>
-
-            <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
-              <div
-                className="bg-[#00d2ff] h-full transition-all duration-150"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-
-            <div className="flex justify-between font-mono text-[11px] text-ink-faint">
-              <span>{formatBytes(receivedBytes)} / {formatBytes(fileHeader?.size || 0)}</span>
-              <span>Speed: {downloadSpeed}</span>
-            </div>
-          </div>
-        ) : status === "completed" ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Check className="h-5 w-5 text-[#00d2ff]" />
-                <span className="text-sm font-medium text-ink">
-                  {receivedType === "file" ? "File downloaded to your device" : "Clipboard payload received"}
-                </span>
-              </div>
-              <button
-                onClick={() => {
-                  setStatus("idle");
-                  setCode("");
-                }}
-                className="font-mono text-xs text-ink-soft hover:text-ink underline underline-offset-4"
-              >
-                Receive another
+              <button onClick={resetSender} className="font-mono text-xs text-ink-soft hover:text-white underline">
+                &larr; Try again
               </button>
             </div>
+          )}
+        </div>
 
-            {receivedType === "clip" && (
-              <div className="space-y-3 pt-2">
-                <div className="rounded-[10px] border border-line bg-paper-2 p-3 font-mono text-xs text-ink-soft break-all select-all max-h-40 overflow-y-auto">
-                  {clipText}
-                </div>
-                <button
-                  onClick={copyReceivedClip}
-                  className="rounded-[10px] bg-[#00d2ff] px-4 py-2 font-mono text-xs font-semibold text-black transition-opacity hover:opacity-90"
-                >
-                  {copied ? "Copied!" : "Copy to Clipboard"}
-                </button>
-              </div>
+        {/* ==================================================== */}
+        {/* BOX 2: RECEIVE WITH CODE (Kept Separate Like Before) */}
+        {/* ==================================================== */}
+        <div className="rounded-[14px] border border-[#2a2a36] bg-panel p-5 sm:p-6 hover:border-[#3e3e52] transition-colors shadow-sm">
+          <div className="flex items-center justify-between">
+            {/* Exact emerald badge matching the subheadings in cards above */}
+            <span className="font-mono text-xs font-semibold px-2.5 py-1 rounded-[6px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+              Web Receiver
+            </span>
+            {receiveStatus !== "idle" && (
+              <button
+                onClick={resetReceiver}
+                className="rounded-[6px] border border-line p-1.5 text-ink-soft hover:text-white hover:border-line-strong transition-colors"
+                title="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </button>
             )}
           </div>
-        ) : null}
+
+          <h3 className="mt-3 text-lg font-bold text-white tracking-tight">
+            Enter Pairing Code to Receive
+          </h3>
+          <p className="mt-1 text-xs text-ink-soft">
+            Download files or receive clipboard text directly over WebRTC.
+          </p>
+
+          {/* Idle / Error State: Exact original input row layout */}
+          {(receiveStatus === "idle" || receiveStatus === "error") && (
+            <div className="mt-4 space-y-2.5">
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <input
+                  type="text"
+                  placeholder="6-digit pairing code (e.g. 842-194)"
+                  value={receiveCode}
+                  onChange={(e) => setReceiveCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleStartReceive()}
+                  className="flex-1 rounded-[10px] border border-[#2a2a36] bg-paper-2 px-3.5 py-2.5 font-mono text-sm text-ink placeholder-ink-faint focus:border-emerald-400/60 focus:outline-none transition-colors"
+                />
+                <button
+                  onClick={handleStartReceive}
+                  disabled={!receiveCode.trim()}
+                  className="rounded-[10px] bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-black transition-opacity hover:bg-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shrink-0"
+                >
+                  Connect & Download
+                </button>
+              </div>
+
+              {receiveStatus === "error" && (
+                <div className="flex items-center gap-2 rounded-[10px] border border-rose-500/20 bg-rose-500/10 p-3 font-mono text-xs text-rose-400">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{receiveError || "Failed to connect to room."}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Connecting / Negotiating */}
+          {(receiveStatus === "connecting" || receiveStatus === "negotiating") && (
+            <div className="py-8 text-center space-y-2.5">
+              <Loader2 className="h-5 w-5 text-emerald-400 animate-spin mx-auto" />
+              <div className="font-mono text-xs text-ink-soft">{receiveStatusMsg}</div>
+            </div>
+          )}
+
+          {/* Receiving File Stream */}
+          {receiveStatus === "receiving" && receivedType === "file" && (
+            <div className="mt-5 space-y-3">
+              <div className="flex justify-between font-mono text-xs">
+                <span className="text-white truncate max-w-[240px] font-medium">{recvHeader?.filename}</span>
+                <span className="text-emerald-400 font-semibold">{recvProgress}%</span>
+              </div>
+              <div className="w-full bg-paper-2 rounded-full h-2 overflow-hidden border border-line">
+                <div className="bg-emerald-400 h-full transition-all duration-150" style={{ width: `${recvProgress}%` }} />
+              </div>
+              <div className="flex justify-between font-mono text-[11px] text-ink-soft">
+                <span>{formatBytes(recvBytes)} / {formatBytes(recvHeader?.size || 0)}</span>
+                <span>Speed: {recvSpeed}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Completed State */}
+          {receiveStatus === "completed" && (
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                    <Check className="h-4 w-4 text-emerald-400" />
+                  </div>
+                  <span className="text-sm font-semibold text-white">
+                    {receivedType === "file" ? "File downloaded to device" : "Clipboard payload received"}
+                  </span>
+                </div>
+                <button onClick={resetReceiver} className="font-mono text-xs text-emerald-400 hover:underline">
+                  Receive another
+                </button>
+              </div>
+
+              {receivedType === "clip" && (
+                <div className="space-y-2 pt-1">
+                  <div className="rounded-[10px] border border-line bg-paper-2 p-3 font-mono text-xs text-ink-soft break-all select-all max-h-36 overflow-y-auto">
+                    {clipText}
+                  </div>
+                  <button
+                    onClick={copyReceivedClip}
+                    className="rounded-[10px] bg-emerald-400 px-4 py-2 font-mono text-xs font-semibold text-black hover:bg-emerald-300"
+                  >
+                    {copiedClip ? "Copied to clipboard!" : "Copy to Clipboard"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
 };
+
+export default WebReceiver;

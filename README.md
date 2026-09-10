@@ -34,6 +34,19 @@ npx p2pcopy receive 749-102
 
 ---
 
+## 🔄 4 Transfer Combinations
+
+With both CLI and In-Browser capabilities, `p2pcopy` unlocks **4 flexible transfer combinations**:
+
+| # | Combination | Flow | Real-World Use Case |
+| :--- | :--- | :--- | :--- |
+| **1** | **Terminal ➔ Terminal** | `p2pcopy send <file>` ➔ `p2pcopy receive <code>` | Direct machine-to-machine streaming between developer terminals. |
+| **2** | **Terminal ➔ Browser** | `p2pcopy send <file>` ➔ Web Receiver tab | Beam files from a headless cloud server directly to a phone or laptop browser. |
+| **3** | **Browser ➔ Terminal** | Drag file into browser ➔ `npx p2pcopy receive <code>` | Teammate sends from their browser; you download straight into your terminal. |
+| **4** | **Browser ➔ Browser** | Drop file in browser ➔ Open Web Receiver tab | 100% zero-install, direct peer-to-peer web transfer between two browsers. |
+
+---
+
 ### Global Installation (Optional)
 
 If you want the command permanently installed on your system:

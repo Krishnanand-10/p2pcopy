@@ -24,7 +24,7 @@ export const Navbar: React.FC = () => {
             Commands
           </a>
           <a href="#receiver" className="hidden transition-colors duration-300 hover:text-white sm:block">
-            Web Receiver
+            Web Transfer
           </a>
           <a href="#library" className="hidden transition-colors duration-300 hover:text-white md:block">
             Library
