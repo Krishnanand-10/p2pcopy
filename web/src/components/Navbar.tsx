@@ -30,12 +30,12 @@ export const Navbar: React.FC = () => {
             Library
           </a>
 
-          {/* NPM Badge */}
+          {/* NPM Badge matching emerald subheading color */}
           <a
             href="https://www.npmjs.com/package/p2pcopy"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-[10px] bg-neon px-4 py-2 text-sm font-semibold text-black transition-opacity duration-300 hover:opacity-90 shadow-sm"
+            className="rounded-[10px] bg-emerald-400 px-4 py-2 text-sm font-semibold text-black transition-colors duration-300 hover:bg-emerald-300 shadow-sm"
           >
             npm
           </a>

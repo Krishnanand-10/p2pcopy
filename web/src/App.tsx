@@ -30,9 +30,11 @@ export const App: React.FC = () => {
       <main className="relative z-10 mx-auto max-w-6xl px-6 w-full flex-1">
         {/* Hero Section */}
         <section className="flex flex-col items-center pt-20 text-center sm:pt-24">
-          {/* Main Title kept in clean, bold pure white */}
-          <h1 className="mx-auto max-w-[22ch] text-[2.75rem] leading-[1.12] sm:text-6xl lg:text-7xl font-bold tracking-tight text-white">
-            Direct device-to-device streaming from your terminal.
+          {/* Main Title formatted across 3 clean lines */}
+          <h1 className="mx-auto max-w-[20ch] text-[2.75rem] leading-[1.12] sm:text-6xl lg:text-7xl font-bold tracking-tight text-white">
+            Direct device-to-device <br className="hidden sm:inline" />
+            streaming from your <br className="hidden sm:inline" />
+            terminal.
           </h1>
 
           {/* Subtitle */}
