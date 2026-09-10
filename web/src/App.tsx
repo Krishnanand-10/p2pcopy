@@ -19,7 +19,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#070708] text-ink font-sans flex flex-col selection:bg-neon/20 selection:text-neon">
+    <div className="relative min-h-screen bg-[#070708] text-ink font-sans flex flex-col selection:bg-emerald-500/20 selection:text-emerald-400">
       {/* Soft Ambient Top Lighting */}
       <div className="fixed inset-0 pointer-events-none ambient-glow z-0" />
 
@@ -46,16 +46,16 @@ export const App: React.FC = () => {
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             {/* Install Pill with Defined Hairline Border */}
             <div className="inline-flex items-center gap-3 rounded-[12px] border border-line bg-paper-2 py-2.5 pl-4 pr-2 font-mono text-sm hover:border-line-strong transition-colors">
-              <span className="text-neon select-none font-bold">$</span>
-              <span className="select-all font-mono text-ink">npx p2pcopy send &lt;file&gt;</span>
+              <span className="text-emerald-400 select-none font-bold">$</span>
+              <span className="select-all font-mono text-ink">npm install -g p2pcopy</span>
               <button
                 type="button"
-                onClick={() => copyCommand("npx p2pcopy send <file>", setHeroCopied)}
+                onClick={() => copyCommand("npm install -g p2pcopy", setHeroCopied)}
                 aria-label="Copy command"
                 className="shrink-0 rounded-[10px] border border-line p-2 text-ink-faint transition-colors duration-300 hover:border-line-strong hover:text-white active:scale-[0.96]"
               >
                 {heroCopied ? (
-                  <Check className="h-3.5 w-3.5 text-neon" />
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
                 ) : (
                   <Copy className="h-3.5 w-3.5" />
                 )}
@@ -111,7 +111,7 @@ export const App: React.FC = () => {
 
             <div className="mt-8 flex justify-center">
               <div className="inline-flex items-center gap-3 rounded-[12px] border border-line bg-paper-2 py-2.5 pl-4 pr-2 font-mono text-sm hover:border-line-strong transition-colors">
-                <span className="text-neon select-none font-bold">$</span>
+                <span className="text-emerald-400 select-none font-bold">$</span>
                 <span className="select-all font-mono text-ink">npm install -g p2pcopy</span>
                 <button
                   type="button"
@@ -120,7 +120,7 @@ export const App: React.FC = () => {
                   className="shrink-0 rounded-[10px] border border-line p-2 text-ink-faint transition-colors duration-300 hover:border-line-strong hover:text-white active:scale-[0.96]"
                 >
                   {ctaCopied ? (
-                    <Check className="h-3.5 w-3.5 text-neon" />
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
                   ) : (
                     <Copy className="h-3.5 w-3.5" />
                   )}
