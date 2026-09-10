@@ -25,51 +25,97 @@ export class EphemeralSignalingServer {
       const port = this.options.port;
       const host = this.options.host || "0.0.0.0";
 
-      // HTTP server to serve a status page for browser visits
+      const MIME_TYPES: Record<string, string> = {
+        ".html": "text/html; charset=utf-8",
+        ".js": "text/javascript; charset=utf-8",
+        ".css": "text/css; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".svg": "image/svg+xml",
+        ".ico": "image/x-icon",
+        ".woff2": "font/woff2",
+        ".woff": "font/woff",
+      };
+
+      const findWebDist = (): string | null => {
+        const candidates = [
+          path.resolve(__dirname, "../../web/dist"),
+          path.resolve(__dirname, "../web/dist"),
+          path.resolve(process.cwd(), "web/dist"),
+        ];
+        for (const c of candidates) {
+          if (fs.existsSync(path.join(c, "index.html"))) return c;
+        }
+        return null;
+      };
+
+      const webDist = findWebDist();
+
+      // HTTP server to serve the web application or status page
       this.httpServer = http.createServer((req, res) => {
-        if (req.url === "/" || req.url === "/health") {
-          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(`<!DOCTYPE html>
+        const urlPath = (req.url || "/").split("?")[0];
+
+        if (urlPath === "/health") {
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ status: "ok", activeRooms: this.rooms.size, uptime: process.uptime() }));
+          return;
+        }
+
+        if (webDist) {
+          let filePath = path.join(webDist, urlPath === "/" ? "index.html" : urlPath);
+          if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+            filePath = path.join(webDist, "index.html");
+          }
+
+          if (fs.existsSync(filePath)) {
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType = MIME_TYPES[ext] || "application/octet-stream";
+            res.writeHead(200, { "Content-Type": contentType });
+            fs.createReadStream(filePath).pipe(res);
+            return;
+          }
+        }
+
+        // Fallback clean status page with valid UTF-8 encoding
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>p2pcopy â€” Ephemeral Signaling Relay</title>
+  <title>p2pcopy — Ephemeral Signaling Relay</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
-    .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; border: 1px solid #334155; text-align: center; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-    .badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 0.4rem 0.9rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; margin-bottom: 1.25rem; border: 1px solid rgba(16, 185, 129, 0.3); }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #070708; color: #f4f4f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1rem; box-sizing: border-box; }
+    .card { background: #0e0e12; padding: 2.5rem; border-radius: 1.25rem; border: 1px solid #1e1e26; text-align: center; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+    .badge { display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); color: #34d399; padding: 0.4rem 0.9rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; margin-bottom: 1.25rem; border: 1px solid rgba(16, 185, 129, 0.3); }
     .dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px #10b981; }
-    h1 { margin: 0.25rem 0 0.75rem 0; font-size: 1.85rem; color: #38bdf8; letter-spacing: -0.025em; }
-    p { color: #94a3b8; font-size: 0.95rem; line-height: 1.6; margin: 0.5rem 0; }
-    .terminal-box { background: #0b1120; border: 1px solid #1e293b; border-radius: 0.75rem; padding: 1rem; margin: 1.5rem 0; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; color: #cbd5e1; overflow-x: auto; }
-    .cmd { color: #38bdf8; }
-    .footer { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #334155; font-size: 0.85rem; color: #64748b; }
-    a { color: #38bdf8; text-decoration: none; font-weight: 500; }
+    h1 { margin: 0.25rem 0 0.75rem 0; font-size: 1.85rem; color: #ffffff; letter-spacing: -0.025em; font-weight: 700; }
+    p { color: #9696a6; font-size: 0.95rem; line-height: 1.6; margin: 0.5rem 0; }
+    .terminal-box { background: #131317; border: 1px solid #1e1e26; border-radius: 0.75rem; padding: 1rem; margin: 1.5rem 0; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875rem; color: #cbd5e1; overflow-x: auto; }
+    .cmd { color: #34d399; font-weight: 600; }
+    .footer { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #1e1e26; font-size: 0.85rem; color: #585866; }
+    a { color: #34d399; text-decoration: none; font-weight: 500; }
     a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="badge"><span class="dot"></span> Signaling Relay Online</div>
-    <h1>ðŸš€ p2pcopy</h1>
-    <p>This is an ephemeral, zero-storage WebRTC signaling server. Payloads never touch this server â€” all files and clipboard data flow directly peer-to-peer with end-to-end encryption.</p>
+    <h1>🚀 p2pcopy</h1>
+    <p>This is an ephemeral, zero-storage WebRTC signaling server. Payloads never touch this server — all files and clipboard data flow directly peer-to-peer with end-to-end encryption.</p>
     <div class="terminal-box">
-      <div><span style="color:#64748b;"># Send a file</span></div>
+      <div><span style="color:#585866;"># Send a file</span></div>
       <div>$ <span class="cmd">p2pcopy send</span> &lt;file&gt;</div>
-      <div style="margin-top:0.5rem;"><span style="color:#64748b;"># Receive on another machine</span></div>
+      <div style="margin-top:0.5rem;"><span style="color:#585866;"># Receive on another machine</span></div>
       <div>$ <span class="cmd">p2pcopy receive</span> &lt;code&gt;</div>
     </div>
     <div class="footer">
-      Open source on <a href="https://github.com/Krishnanand-10/p2pcopy" target="_blank">GitHub (Krishnanand-10/p2pcopy)</a>
+      Open source on <a href="https://github.com/Krishnanand-10/p2pcopy" target="_blank" rel="noopener noreferrer">GitHub (Krishnanand-10/p2pcopy)</a>
     </div>
   </div>
 </body>
 </html>`);
-        } else {
-          res.writeHead(404);
-          res.end();
-        }
       });
 
       this.wss = new WebSocketServer({ server: this.httpServer });
