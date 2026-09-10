@@ -49,6 +49,133 @@ With dual CLI and in-browser capabilities, `p2pcopy` works across all four combi
 
 ---
 
+## 🏗️ Architecture & Protocol Flow
+
+`p2pcopy` combines a lightweight, ephemeral signaling relay with direct peer-to-peer WebRTC DataChannels. **Payloads never touch any intermediate server** — neither the signaling server nor any cloud bucket ever sees your files or clipboard data.
+
+### System Topology
+
+```mermaid
+flowchart TD
+    subgraph Sender ["Sender (CLI or Browser)"]
+        A1["Input: File Stream or System Clipboard"]
+        A2["Backpressure Flow Controller (64KB Chunks)"]
+        A3["On-the-Fly SHA-256 Digest Generator"]
+        A4["WebRTC DataChannel (DTLS 1.3 / SCTP)"]
+        A1 --> A2 --> A3 --> A4
+    end
+
+    subgraph Relay ["Ephemeral Signaling Relay (wss://p2pcopy.onrender.com)"]
+        S1["In-Memory Room Code Registry"]
+        S2["SDP Offer / Answer Relay"]
+        S3["Trickle ICE Candidate Forwarder"]
+        S4["Zero Storage: Auto-Destroy Room on Connect"]
+        S1 --- S2 --- S3 --- S4
+    end
+
+    subgraph Receiver ["Receiver (CLI or Browser)"]
+        B4["WebRTC DataChannel (DTLS 1.3 / SCTP)"]
+        B3["Chunk Assembler & Stream Sink"]
+        B2["SHA-256 Integrity Verifier"]
+        B1["Output: Safe Disk Writer or OS Pasteboard"]
+        B4 --> B3 --> B2 --> B1
+    end
+
+    Sender -. "1. Ephemeral SDP & ICE Handshake" .-> Relay
+    Relay -. "2. Relayed Peer Rendezvous" .-> Receiver
+    A4 == "3. Direct P2P Stream (Zero-Cloud, DTLS 1.3 E2EE)" ==> B4
+```
+
+### Protocol Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor A as Sender (CLI / Browser)
+    participant S as Ephemeral Signaling Relay<br/>(wss://p2pcopy.onrender.com)
+    actor B as Receiver (CLI / Browser)
+
+    Note over A,S: 1. Ephemeral Room Creation
+    A->>S: create_room("842-194")
+    S-->>A: room_created
+    Note over A: Generates SDP Offer & gathers ICE candidates
+
+    Note over B,S: 2. Peer Rendezvous
+    B->>S: join_room("842-194")
+    S-->>B: room_joined
+    S-->>A: peer_joined
+
+    Note over A,B: 3. Ephemeral SDP & ICE Exchange
+    A->>S: send_signal(SDP Offer + ICE)
+    S->>B: relay_signal(SDP Offer + ICE)
+    Note over B: Sets Remote SDP Offer & creates SDP Answer
+    B->>S: send_signal(SDP Answer + ICE)
+    S->>A: relay_signal(SDP Answer + ICE)
+
+    Note over A,B: 4. Direct E2EE WebRTC DataChannel Established (DTLS 1.3 / SCTP)
+    A-xS: Close signaling WebSocket connection
+    B-xS: Close signaling WebSocket connection
+    Note over S: Room "842-194" purged instantly from memory
+
+    Note over A,B: 5. Direct Zero-Cloud Stream
+    A->>B: Metadata Handshake (fileName, fileSize, mimeType, isClip)
+    loop 64KB Chunk Streaming with Backpressure
+        A->>B: Binary Chunk (64KB payload)
+        Note over A: Throttled via bufferedAmountLowThreshold
+        Note over B: Streams chunks into disk/RAM + computes SHA-256 hash
+    end
+    A->>B: Transfer Complete (SHA-256 Checksum)
+    Note over B: Validates checksum & saves to disk or OS pasteboard
+```
+
+### Core Engineering Principles
+
+1. **Zero Cloud Storage & Zero Knowledge:**  
+   No S3 buckets, no blob storage, no accounts. The signaling server is an in-memory WebSocket broker that exists solely to exchange SDP strings and ICE candidates. Once the WebRTC DataChannel is negotiated, both peers detach from signaling, and the room is immediately purged from RAM.
+2. **Cross-Platform Interoperability:**  
+   Node.js CLI endpoints utilize native C++ WebRTC bindings (`node-datachannel`), while web endpoints use standard W3C browser `RTCPeerConnection` APIs. Both compile down to identical DTLS 1.3 / SCTP wire formats, enabling seamless transfers across any combination of terminal and browser.
+3. **Constant-Memory Streaming with Backpressure:**  
+   Files are read as continuous Node.js / Web Streams divided into 64KB binary chunks. Senders monitor `dataChannel.bufferedAmount` with a low-water mark (`bufferedAmountLowThreshold = 64KB`), pausing disk reads when network buffers fill. This allows transferring multi-gigabyte files using under 20MB of RAM without buffer overflow or packet drops.
+4. **Cryptographic Checksum Verification:**  
+   As chunks stream across the wire, both sender and receiver update an incremental SHA-256 cryptographic digest. Before the receiver writes the final file to disk, the calculated checksum is verified against the sender's digest to guarantee zero bit rot or tampering.
+
+### 📁 Project Directory Structure
+
+```text
+p2pcopy/
+├── bin/
+│   └── p2pcopy.js             # Global CLI executable runner
+├── src/                       # TypeScript CLI & Core Library
+│   ├── index.ts               # CLI command router (Commander.js) & library exports
+│   ├── signaling/
+│   │   ├── server.ts          # Ephemeral in-memory WebSocket signaling server
+│   │   ├── client.ts          # Signaling handshake client
+│   │   └── types.ts           # Wire message schemas
+│   ├── webrtc/
+│   │   ├── peer.ts            # WebRTC PeerConnection & DataChannel wrapper (node-datachannel)
+│   │   └── config.ts          # STUN / TURN resolver
+│   ├── transfer/
+│   │   ├── sender.ts          # File stream reader with backpressure flow control
+│   │   ├── receiver.ts        # Chunk writer & SHA-256 verification
+│   │   └── protocol.ts        # 64KB chunk size & packet definitions
+│   ├── clipboard/
+│   │   └── index.ts           # OS pasteboard integration (Windows, macOS, Linux) & stdin
+│   └── utils/
+│       ├── code.ts            # 6-digit pairing code generator (XXX-XXX)
+│       └── ui.ts              # Terminal formatting, tables & progress bars
+├── web/                       # Modern React + Vite + TypeScript Web Application
+│   ├── src/
+│   │   ├── components/        # WebReceiver, TerminalDemo, FeatureGrid, Navbar, etc.
+│   │   ├── App.tsx            # Main application layout
+│   │   └── index.css          # Design system styles
+│   └── package.json           # Web frontend dependencies
+├── test/                      # End-to-end integration test suite
+├── package.json
+└── tsconfig.json
+```
+
+---
+
 ## 📥 Quickstart (Zero Installation Required!)
 
 Anyone with Node.js 18+ can run `p2pcopy` on-demand via `npx`:
@@ -206,43 +333,6 @@ Included test suites:
 - `test/webrtc.test.js`: WebRTC DataChannel connection negotiation and bidirectional messaging.
 - `test/file-transfer.test.js`: Binary stream chunking, backpressure control, and SHA-256 digest validation.
 - `test/clipboard.test.js`: Cross-machine clipboard synchronization and system pasteboard integration.
-
----
-
-## 📁 Architecture
-
-```text
-p2pcopy/
-├── bin/
-│   └── p2pcopy.js             # Global CLI executable runner
-├── src/                       # TypeScript CLI & Core Library
-│   ├── index.ts               # CLI command router (Commander.js) & library exports
-│   ├── signaling/
-│   │   ├── server.ts          # Ephemeral in-memory WebSocket signaling server
-│   │   ├── client.ts          # Signaling handshake client
-│   │   └── types.ts           # Wire message schemas
-│   ├── webrtc/
-│   │   ├── peer.ts            # WebRTC PeerConnection & DataChannel wrapper (node-datachannel)
-│   │   └── config.ts          # STUN / TURN resolver
-│   ├── transfer/
-│   │   ├── sender.ts          # File stream reader with backpressure flow control
-│   │   ├── receiver.ts        # Chunk writer & SHA-256 verification
-│   │   └── protocol.ts        # 64KB chunk size & packet definitions
-│   ├── clipboard/
-│   │   └── index.ts           # OS pasteboard integration (Windows, macOS, Linux) & stdin
-│   └── utils/
-│       ├── code.ts            # 6-digit pairing code generator (XXX-XXX)
-│       └── ui.ts              # Terminal formatting, tables & progress bars
-├── web/                       # Modern React + Vite + TypeScript Web Application
-│   ├── src/
-│   │   ├── components/        # WebReceiver, TerminalDemo, FeatureGrid, Navbar, etc.
-│   │   ├── App.tsx            # Main application layout
-│   │   └── index.css          # Design system styles
-│   └── package.json           # Web frontend dependencies
-├── test/                      # End-to-end integration test suite
-├── package.json
-└── tsconfig.json
-```
 
 ---
 
