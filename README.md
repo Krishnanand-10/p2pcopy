@@ -57,32 +57,31 @@ With dual CLI and in-browser capabilities, `p2pcopy` works across all four combi
 
 ```mermaid
 flowchart TD
+    subgraph Relay ["Ephemeral Signaling Relay (wss://p2pcopy.onrender.com)"]
+        S1["In-Memory Room Code Registry"]
+        S2["SDP Offer / Answer and ICE Candidate Relay"]
+        S3["Zero Storage: Auto-Purged on Connect"]
+        S1 --- S2 --- S3
+    end
+
     subgraph Sender ["Sender (CLI or Browser)"]
         A1["Input: File Stream or System Clipboard"]
         A2["Backpressure Flow Controller (64KB Chunks)"]
-        A3["On-the-Fly SHA-256 Digest Generator"]
+        A3["SHA-256 Digest Generator"]
         A4["WebRTC DataChannel (DTLS 1.3 / SCTP)"]
         A1 --> A2 --> A3 --> A4
     end
 
-    subgraph Relay ["Ephemeral Signaling Relay (wss://p2pcopy.onrender.com)"]
-        S1["In-Memory Room Code Registry"]
-        S2["SDP Offer / Answer Relay"]
-        S3["Trickle ICE Candidate Forwarder"]
-        S4["Zero Storage: Auto-Destroy Room on Connect"]
-        S1 --- S2 --- S3 --- S4
-    end
-
     subgraph Receiver ["Receiver (CLI or Browser)"]
         B4["WebRTC DataChannel (DTLS 1.3 / SCTP)"]
-        B3["Chunk Assembler & Stream Sink"]
+        B3["Chunk Assembler and Stream Sink"]
         B2["SHA-256 Integrity Verifier"]
         B1["Output: Safe Disk Writer or OS Pasteboard"]
         B4 --> B3 --> B2 --> B1
     end
 
-    Sender -. "1. Ephemeral SDP & ICE Handshake" .-> Relay
-    Relay -. "2. Relayed Peer Rendezvous" .-> Receiver
+    A4 -. "1. Ephemeral SDP and ICE Handshake" .-> S2
+    S2 -. "2. Relayed Peer Rendezvous" .-> B4
     A4 == "3. Direct P2P Stream (Zero-Cloud, DTLS 1.3 E2EE)" ==> B4
 ```
 
@@ -98,14 +97,14 @@ sequenceDiagram
     Note over A,S: 1. Ephemeral Room Creation
     A->>S: create_room("842-194")
     S-->>A: room_created
-    Note over A: Generates SDP Offer & gathers ICE candidates
+    Note over A: Generates SDP Offer and gathers ICE candidates
 
     Note over B,S: 2. Peer Rendezvous
     B->>S: join_room("842-194")
     S-->>B: room_joined
     S-->>A: peer_joined
 
-    Note over A,B: 3. Ephemeral SDP & ICE Exchange
+    Note over A,B: 3. Ephemeral SDP and ICE Exchange
     A->>S: send_signal(SDP Offer + ICE)
     S->>B: relay_signal(SDP Offer + ICE)
     Note over B: Sets Remote SDP Offer & creates SDP Answer
@@ -113,8 +112,8 @@ sequenceDiagram
     S->>A: relay_signal(SDP Answer + ICE)
 
     Note over A,B: 4. Direct E2EE WebRTC DataChannel Established (DTLS 1.3 / SCTP)
-    A-xS: Close signaling WebSocket connection
-    B-xS: Close signaling WebSocket connection
+    A--x S: Close signaling WebSocket connection
+    B--x S: Close signaling WebSocket connection
     Note over S: Room "842-194" purged instantly from memory
 
     Note over A,B: 5. Direct Zero-Cloud Stream
