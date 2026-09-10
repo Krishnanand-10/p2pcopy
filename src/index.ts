@@ -293,39 +293,47 @@ clipCommand
 
       await peer.start();
 
-      peer.on("connected", (dc) => {
+      let receivedClipboard = false;
+
+      const handleClipboardMsg = (raw: any) => {
+        if (receivedClipboard) return;
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type === "CLIPBOARD") {
+            receivedClipboard = true;
+            const text = msg.text;
+
+            if (options.copy !== false) {
+              writeClipboard(text);
+              UI.success("Content copied directly to your clipboard! 📋");
+            }
+
+            console.log();
+            console.log(pc.bold(pc.cyan("--- CLIPBOARD CONTENT ---")));
+            console.log(text);
+            console.log(pc.bold(pc.cyan("-------------------------")));
+            console.log();
+
+            try {
+              peer.send(JSON.stringify({ type: "CLIPBOARD_ACK" }));
+            } catch {}
+
+            setTimeout(() => {
+              peer.close();
+              signalClient.close();
+              process.exit(0);
+            }, 300);
+          }
+        } catch (err: any) {
+          UI.error(`Failed to process clipboard content: ${err.message}`);
+        }
+      };
+
+      peer.on("data", handleClipboardMsg);
+
+      peer.on("connected", () => {
         UI.success("WebRTC DataChannel connected (E2EE active)!");
         UI.info("Awaiting clipboard content...");
-
-        dc.onMessage((raw: any) => {
-          try {
-            const msg = JSON.parse(raw.toString());
-            if (msg.type === "CLIPBOARD") {
-              const text = msg.text;
-
-              if (options.copy !== false) {
-                writeClipboard(text);
-                UI.success("Content copied directly to your clipboard! Ã°Å¸â€œâ€¹");
-              }
-
-              console.log();
-              console.log(pc.bold(pc.cyan("--- CLIPBOARD CONTENT ---")));
-              console.log(text);
-              console.log(pc.bold(pc.cyan("-------------------------")));
-              console.log();
-
-              dc.sendMessage(JSON.stringify({ type: "CLIPBOARD_ACK" }));
-
-              setTimeout(() => {
-                peer.close();
-                signalClient.close();
-                process.exit(0);
-              }, 300);
-            }
-          } catch (err: any) {
-            UI.error(`Failed to process clipboard content: ${err.message}`);
-          }
-        });
       });
 
       peer.on("error", (err) => {

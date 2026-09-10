@@ -14,6 +14,14 @@ import {
 
 const SIGNAL_URL = "wss://p2pcopy.onrender.com";
 
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
+];
+
 interface FileHeader {
   type: "FILE_HEADER";
   filename: string;
@@ -48,6 +56,7 @@ export const WebReceiver: React.FC = () => {
   const sendDcRef = useRef<RTCDataChannel | null>(null);
   const sendSha256Ref = useRef<string>("");
   const clipToSendRef = useRef<string>("");
+  const sendPendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const sendAbortRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -71,6 +80,7 @@ export const WebReceiver: React.FC = () => {
   const recvWsRef = useRef<WebSocket | null>(null);
   const recvPcRef = useRef<RTCPeerConnection | null>(null);
   const recvDcRef = useRef<RTCDataChannel | null>(null);
+  const recvPendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const recvChunksRef = useRef<ArrayBuffer[]>([]);
   const recvStartTimeRef = useRef<number>(0);
 
@@ -128,6 +138,7 @@ export const WebReceiver: React.FC = () => {
     setFileToSend(null);
     setClipToSend("");
     clipToSendRef.current = "";
+    sendPendingCandidatesRef.current = [];
     setGeneratedCode("");
     setSendStatus("idle");
     setSendStatusMsg("");
@@ -267,10 +278,7 @@ export const WebReceiver: React.FC = () => {
     text?: string
   ) => {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ],
+      iceServers: ICE_SERVERS,
     });
     sendPcRef.current = pc;
 
@@ -300,13 +308,20 @@ export const WebReceiver: React.FC = () => {
         setSendStatus("streaming");
         setSendStatusMsg("WebRTC connected! Streaming clipboard...");
         const payload = text || clipToSendRef.current;
-        dc.send(
-          JSON.stringify({
-            type: "CLIPBOARD",
-            text: payload,
-            timestamp: Date.now(),
-          })
-        );
+        const msg = JSON.stringify({
+          type: "CLIPBOARD",
+          text: payload,
+          timestamp: Date.now(),
+        });
+        dc.send(msg);
+        // Small fallback pulse in case peer DataChannel was just attaching listener
+        setTimeout(() => {
+          try {
+            if (dc.readyState === "open" && sendStatus !== "completed") {
+              dc.send(msg);
+            }
+          } catch {}
+        }, 150);
         return;
       }
 
@@ -375,17 +390,33 @@ export const WebReceiver: React.FC = () => {
 
     if (payload.type === "answer") {
       await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: payload.sdp }));
+      // Drain queued candidates received before answer
+      while (sendPendingCandidatesRef.current.length > 0) {
+        const cand = sendPendingCandidatesRef.current.shift();
+        if (cand) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn("Failed adding queued candidate:", e);
+          }
+        }
+      }
     } else if (payload.type === "candidate") {
-      try {
-        await pc.addIceCandidate(
-          new RTCIceCandidate({
-            candidate: payload.candidate,
-            sdpMid: payload.sdpMid,
-            sdpMLineIndex: payload.sdpMLineIndex,
-          })
-        );
-      } catch (e) {
-        console.error("Error adding sender candidate:", e);
+      if (payload.candidate) {
+        const cand: RTCIceCandidateInit = {
+          candidate: payload.candidate,
+          sdpMid: payload.sdpMid,
+          sdpMLineIndex: payload.sdpMLineIndex,
+        };
+        if (!pc.remoteDescription) {
+          sendPendingCandidatesRef.current.push(cand);
+        } else {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.error("Error adding sender candidate:", e);
+          }
+        }
       }
     }
   };
@@ -462,6 +493,7 @@ export const WebReceiver: React.FC = () => {
       recvDcRef.current = null;
     }
     recvChunksRef.current = [];
+    recvPendingCandidatesRef.current = [];
     setReceiveCode("");
     setReceiveStatus("idle");
     setReceiveStatusMsg("");
@@ -524,10 +556,7 @@ export const WebReceiver: React.FC = () => {
 
   const initReceiverWebRTC = (ws: WebSocket, roomId: string) => {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ],
+      iceServers: ICE_SERVERS,
     });
     recvPcRef.current = pc;
 
@@ -627,17 +656,34 @@ export const WebReceiver: React.FC = () => {
           })
         );
       }
+
+      // Drain queued candidates received before offer was set
+      while (recvPendingCandidatesRef.current.length > 0) {
+        const cand = recvPendingCandidatesRef.current.shift();
+        if (cand) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn("Failed adding queued candidate:", e);
+          }
+        }
+      }
     } else if (payload.type === "candidate") {
-      try {
-        await pc.addIceCandidate(
-          new RTCIceCandidate({
-            candidate: payload.candidate,
-            sdpMid: payload.sdpMid,
-            sdpMLineIndex: payload.sdpMLineIndex,
-          })
-        );
-      } catch (e) {
-        console.error("Error adding candidate:", e);
+      if (payload.candidate) {
+        const cand: RTCIceCandidateInit = {
+          candidate: payload.candidate,
+          sdpMid: payload.sdpMid,
+          sdpMLineIndex: payload.sdpMLineIndex,
+        };
+        if (!pc.remoteDescription) {
+          recvPendingCandidatesRef.current.push(cand);
+        } else {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.error("Error adding candidate:", e);
+          }
+        }
       }
     }
   };
