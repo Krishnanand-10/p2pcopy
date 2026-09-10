@@ -374,3 +374,11 @@ program
   });
 
 program.parse(process.argv);
+
+// Programmatic Library Exports
+export { EphemeralSignalingServer } from "./signaling/server";
+export { SignalingClient } from "./signaling/client";
+export { WebRTCPeer } from "./webrtc/peer";
+export { FileSender } from "./transfer/sender";
+export { FileReceiver } from "./transfer/receiver";
+export { readClipboard, writeClipboard, readStdin } from "./clipboard/index";
