@@ -47,10 +47,10 @@ export const App: React.FC = () => {
             {/* Install Pill with Defined Hairline Border */}
             <div className="inline-flex items-center gap-3 rounded-[12px] border border-line bg-paper-2 py-2.5 pl-4 pr-2 font-mono text-sm hover:border-line-strong transition-colors">
               <span className="text-emerald-400 select-none font-bold">$</span>
-              <span className="select-all font-mono text-ink">npm install -g p2pcopy</span>
+              <span className="select-all font-mono text-ink">npx p2pcopy send &lt;file&gt;</span>
               <button
                 type="button"
-                onClick={() => copyCommand("npm install -g p2pcopy", setHeroCopied)}
+                onClick={() => copyCommand("npx p2pcopy send <file>", setHeroCopied)}
                 aria-label="Copy command"
                 className="shrink-0 rounded-[10px] border border-line p-2 text-ink-faint transition-colors duration-300 hover:border-line-strong hover:text-white active:scale-[0.96]"
               >
