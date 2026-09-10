@@ -139,41 +139,6 @@ sequenceDiagram
 4. **Cryptographic Checksum Verification:**  
    As chunks stream across the wire, both sender and receiver update an incremental SHA-256 cryptographic digest. Before the receiver writes the final file to disk, the calculated checksum is verified against the sender's digest to guarantee zero bit rot or tampering.
 
-### 📁 Project Directory Structure
-
-```text
-p2pcopy/
-├── bin/
-│   └── p2pcopy.js             # Global CLI executable runner
-├── src/                       # TypeScript CLI & Core Library
-│   ├── index.ts               # CLI command router (Commander.js) & library exports
-│   ├── signaling/
-│   │   ├── server.ts          # Ephemeral in-memory WebSocket signaling server
-│   │   ├── client.ts          # Signaling handshake client
-│   │   └── types.ts           # Wire message schemas
-│   ├── webrtc/
-│   │   ├── peer.ts            # WebRTC PeerConnection & DataChannel wrapper (node-datachannel)
-│   │   └── config.ts          # STUN / TURN resolver
-│   ├── transfer/
-│   │   ├── sender.ts          # File stream reader with backpressure flow control
-│   │   ├── receiver.ts        # Chunk writer & SHA-256 verification
-│   │   └── protocol.ts        # 64KB chunk size & packet definitions
-│   ├── clipboard/
-│   │   └── index.ts           # OS pasteboard integration (Windows, macOS, Linux) & stdin
-│   └── utils/
-│       ├── code.ts            # 6-digit pairing code generator (XXX-XXX)
-│       └── ui.ts              # Terminal formatting, tables & progress bars
-├── web/                       # Modern React + Vite + TypeScript Web Application
-│   ├── src/
-│   │   ├── components/        # WebReceiver, TerminalDemo, FeatureGrid, Navbar, etc.
-│   │   ├── App.tsx            # Main application layout
-│   │   └── index.css          # Design system styles
-│   └── package.json           # Web frontend dependencies
-├── test/                      # End-to-end integration test suite
-├── package.json
-└── tsconfig.json
-```
-
 ---
 
 ## 📥 Quickstart (Zero Installation Required!)
